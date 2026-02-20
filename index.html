@@ -740,6 +740,16 @@ function rAdd(){
         <label class="fl">Date<input id="fD" class="fi" type="date" value="${_now.toISOString().slice(0,10)}"></label>
       </div>
       <label class="fl">Catégorie<select id="fC" class="fs">${opts}</select></label>
+      <div>
+        <div class="fl" style="margin-bottom:6px">Récurrence</div>
+        <div class="pill-row">
+          <button class="pill on" id="rNone" onclick="selRecur('none')">Unique</button>
+          <button class="pill" id="rMonth" onclick="selRecur('monthly')">Mensuel</button>
+          <button class="pill" id="rWeek"  onclick="selRecur('weekly')">Hebdo</button>
+          <button class="pill" id="rYear"  onclick="selRecur('yearly')">Annuel</button>
+        </div>
+        <input id="fRecur" type="hidden" value="none">
+      </div>
       <button class="submit" onclick="submitTx()">Ajouter →</button>
     </div>
   </div>`;
@@ -749,15 +759,43 @@ function selType(tp){
   document.getElementById('bE').className='pill'+(tp==='e'?' on-p':'');
   document.getElementById('bI').className='pill'+(tp==='i'?' on-g':'');
 }
+function selRecur(r){
+  document.getElementById('fRecur').value=r;
+  ['None','Month','Week','Year'].forEach(k=>{
+    document.getElementById('r'+k).className='pill'+(
+      (k==='None'&&r==='none')||(k==='Month'&&r==='monthly')||
+      (k==='Week'&&r==='weekly')||(k==='Year'&&r==='yearly')?' on':'');
+  });
+}
+function nextRecurDate(d, freq){
+  const dt=new Date(d);
+  if(freq==='monthly') dt.setMonth(dt.getMonth()+1);
+  else if(freq==='weekly') dt.setDate(dt.getDate()+7);
+  else if(freq==='yearly') dt.setFullYear(dt.getFullYear()+1);
+  return dt.toISOString().slice(0,10);
+}
 function submitTx(){
   const lb=document.getElementById('fL')?.value?.trim();
   const a=parseInput(document.getElementById('fA')?.value);
   const c=document.getElementById('fC')?.value;
   const d=document.getElementById('fD')?.value;
   const tp=document.getElementById('fT')?.value;
+  const recur=document.getElementById('fRecur')?.value||'none';
   if(!lb||!a||isNaN(a)){toast('Champs manquants !','err');return;}
-  data.t.unshift({id:gid(),lb,a:Math.abs(a),c,d,tp});
-  save(); toast('Transaction ajoutée ✓');
+  if(recur==='none'){
+    // Simple transaction unique
+    data.t.unshift({id:gid(),lb,a:Math.abs(a),c,d,tp});
+    save(); toast('Transaction ajoutée ✓');
+  } else {
+    // Ajouter comme abonnement récurrent
+    const freq=recur; // 'monthly','weekly','yearly'
+    const next=nextRecurDate(d,freq);
+    data.s.push({id:gid(),name:lb,a:Math.abs(a),next,freq,domain:'',color:'',active:true,_fromTx:true,_tp:tp,_cat:c});
+    // Ajouter aussi la transaction du jour
+    data.t.unshift({id:gid(),lb,a:Math.abs(a),c,d,tp});
+    const freqLabel={monthly:'mensuel',weekly:'hebdomadaire',yearly:'annuel'}[freq];
+    save(); toast(`Ajouté + récurrence ${freqLabel} ✓`);
+  }
   document.querySelector('[data-v=dashboard]').click();
 }
 function txRow(t){
