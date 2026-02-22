@@ -10,6 +10,7 @@
 <title>Budget Pro</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
 :root,[data-theme="dark"]{
   --bg:#0A0C0F;--bg2:#0E1016;--bg3:#131519;--border:#1E2028;--border2:#2A2D38;
@@ -285,6 +286,11 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 @media(max-width:380px){.fr2,.fr3{grid-template-columns:1fr}.kpis{grid-template-columns:1fr}.kpi.w3{grid-column:auto}.h-title{font-size:19px}}
 button,a,[onclick]{touch-action:manipulation}
 .main,.logo-grid{-webkit-overflow-scrolling:touch}
+/* OCR image preview */
+#ocrImgPreview{display:none;max-width:100%;max-height:180px;border-radius:10px;margin-bottom:10px;object-fit:contain;border:1px solid var(--border)}
+/* Logo custom dans sheet edit */
+.logo-edit-preview{width:40px;height:40px;border-radius:10px;overflow:hidden;background:var(--bg3);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.logo-edit-preview img{width:100%;height:100%;object-fit:cover}
 </style>
 </head>
 <body>
@@ -324,6 +330,8 @@ button,a,[onclick]{touch-action:manipulation}
 <input type="file" id="csvInput" accept=".csv,.txt,.ofx,.qif" style="display:none">
 <input type="file" id="pdfInput" accept=".pdf,application/pdf" style="display:none">
 <input type="file" id="photoInput" accept="image/*" style="display:none">
+<input type="file" id="imageOcrInput" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none">
+<input type="file" id="logoInput" accept="image/*" style="display:none">
 
 <script>
 // ═══════════════════════════════════════════════════════════
@@ -400,6 +408,40 @@ const SERVICE_BANK=[
   {name:'Fnac+',domain:'fnac.com',color:'#E6AF00'},
   {name:'Deliveroo+',domain:'deliveroo.fr',color:'#00CCBC'},
   {name:'Uber One',domain:'uber.com',color:'#333'},
+  // ── Opérateurs télécom ──
+  {name:'Orange',domain:'orange.fr',color:'#FF7900'},
+  {name:'Free',domain:'free.fr',color:'#CD0000'},
+  {name:'SFR',domain:'sfr.fr',color:'#E2001A'},
+  {name:'Bouygues Telecom',domain:'bouyguestelecom.fr',color:'#1E88D8'},
+  // ── Énergie / Logement ──
+  {name:'EDF',domain:'edf.fr',color:'#F5A623'},
+  {name:'Engie',domain:'engie.fr',color:'#00AAFF'},
+  {name:'Veolia',domain:'veolia.com',color:'#009DE0'},
+  {name:'TotalEnergies',domain:'totalenergies.fr',color:'#FF6600'},
+  // ── Transport ──
+  {name:'SNCF Connect',domain:'sncf-connect.com',color:'#D01C27'},
+  {name:'Navigo / RATP',domain:'ratp.fr',color:'#0055A4'},
+  {name:'Vélib',domain:'velib-metropole.fr',color:'#8BC34A'},
+  {name:'BlaBlaCar',domain:'blablacar.fr',color:'#00AAFF'},
+  {name:'Bolt',domain:'bolt.eu',color:'#34D186'},
+  {name:'Heetch',domain:'heetch.com',color:'#FD5F31'},
+  // ── Santé & Administratif ──
+  {name:'Doctolib',domain:'doctolib.fr',color:'#46BFBF'},
+  {name:'Alan',domain:'alan.com',color:'#5B2BF5'},
+  {name:'URSSAF',domain:'urssaf.fr',color:'#003F87'},
+  {name:'France Travail',domain:'francetravail.fr',color:'#005DA3'},
+  // ── E-commerce & Services ──
+  {name:'Amazon',domain:'amazon.fr',color:'#FF9900'},
+  {name:'Leboncoin',domain:'leboncoin.fr',color:'#FF6E14'},
+  {name:'Vinted',domain:'vinted.fr',color:'#09B1BA'},
+  {name:'Shein',domain:'shein.com',color:'#E23744'},
+  {name:'Temu',domain:'temu.com',color:'#FF6600'},
+  {name:'La Poste',domain:'laposte.fr',color:'#FFCD00'},
+  {name:'Cofidis',domain:'cofidis.fr',color:'#004A8F'},
+  // ── Presse & Culture ──
+  {name:'Cafeyn',domain:'cafeyn.co',color:'#5A1EFF'},
+  {name:'Arte',domain:'arte.tv',color:'#E0423E'},
+  {name:'France TV',domain:'france.tv',color:'#003B90'},
 ];
 const CATEGORY_RULES=[
   {cat:'Logement',kw:['loyer','bail','quittance','edf','engie','total energie','eau ','gaz ','fibre','sfr','orange','free ','bouygues','bytel','assurance ','mutuelle ','mma','axa','maif','macif','allianz','cardif','electricite','logt']},
@@ -424,6 +466,7 @@ let _balanceChart=null;
 let _renewLock={};
 let _currentTheme=localStorage.getItem('theme')||'dark';
 let _importTab='csv';
+let _editingLogoSubId=null;
 
 function loadData(){
   try{const d=JSON.parse(localStorage.getItem('bpro2'));if(d){if(!d.s)d.s=[];if(!d.goals)d.goals=[];if(!d.assets)d.assets=[];if(!d.debts)d.debts=[];return d;}}catch(e){}
@@ -476,6 +519,10 @@ function advanceNext(ds,f){
 function logoUrl(domain){return `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;}
 function logoHtml(s,imgCls,fbCls){
   imgCls=imgCls||'sub-logo';fbCls=fbCls||'sub-fb';
+  const custom=s&&s.id?localStorage.getItem('logo_'+s.id):null;
+  if(custom){
+    return `<img class="${imgCls}" src="${custom}" alt=""><div class="${fbCls}" style="display:none;background:${s.color||'#444'};color:#fff">${esc((s.name||'?')[0])}</div>`;
+  }
   if(s&&s.domain&&s.domain.trim()!==''){
     return `<img class="${imgCls}" src="${logoUrl(s.domain)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" alt=""><div class="${fbCls}" style="display:none;background:${s.color||'#444'};color:#fff">${esc((s.name||'?')[0])}</div>`;
   }
@@ -1027,7 +1074,16 @@ function openEditSub(id){
   const s=data.s.find(x=>x.id===id); if(!s)return;
   const freqOpts=Object.entries(FREQS).map(([k,v])=>`<option value="${k}"${s.freq===k?' selected':''}>${v}</option>`).join('');
   const catOpts=CATS.map(c=>`<option value="${c.name}"${c.name===(s._cat||'Loisirs')?' selected':''}>${c.icon} ${c.name}</option>`).join('');
+  const hasCustom=!!localStorage.getItem('logo_'+s.id);
   const body=`<div class="fg">
+    <div style="margin-bottom:12px">
+      <div class="fl" style="margin-bottom:6px">Logo personnalise</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div class="logo-edit-preview">${logoHtml(s,'sub-logo','sub-fb')}</div>
+        <button type="button" onclick="triggerLogoUpload('${s.id}')" style="background:none;border:1px solid var(--border2);color:var(--text);font-family:var(--mono);font-size:9px;letter-spacing:1px;padding:8px 12px;cursor:pointer;border-radius:8px;text-transform:uppercase">Importer</button>
+        ${hasCustom?`<button type="button" onclick="deleteCustomLogo('${s.id}')" style="background:none;border:1px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:9px;letter-spacing:1px;padding:8px 12px;cursor:pointer;border-radius:8px;text-transform:uppercase">Reinitialiser</button>`:''}
+      </div>
+    </div>
     <label class="fl">Nom<input id="esName" class="fi" type="text" value="${esc(s.name)}"></label>
     <div class="fr2">
       <label class="fl">Montant (${curSymbol()})<input id="esAmt" class="fi" type="text" inputmode="decimal" value="${s.a.toString().replace('.',',')}"></label>
@@ -1052,6 +1108,25 @@ function saveEditSub(id){
   if(!name||!amt||isNaN(amt)||!next){toast('Champs manquants','err');return;}
   s.name=name; s.a=Math.abs(amt); s.freq=freq; s.next=next; s._cat=cat; s.active=active;
   save(); closeSheet(); toast('Abonnement modifie'); render();
+}
+function triggerLogoUpload(subId){
+  _editingLogoSubId=subId;
+  document.getElementById('logoInput').click();
+}
+function saveCustomLogo(file){
+  if(!file||!_editingLogoSubId){return;}
+  if(file.size>600*1024){toast('Image trop grande (max 600 Ko)','err');return;}
+  const reader=new FileReader();
+  reader.onload=e=>{
+    localStorage.setItem('logo_'+_editingLogoSubId,e.target.result);
+    _editingLogoSubId=null;
+    toast('Logo mis a jour');render();
+  };
+  reader.readAsDataURL(file);
+}
+function deleteCustomLogo(subId){
+  localStorage.removeItem('logo_'+subId);
+  toast('Logo reinitialise');closeSheet();render();
 }
 
 // ── Edit Goal ─────────────────────────────────────────────
@@ -1444,14 +1519,23 @@ function rImport(){
     <div style="font-family:var(--mono);font-size:9px;color:var(--green);letter-spacing:2px;margin-bottom:6px">✦ ${pending.length} ABONNEMENT${pending.length>1?'S':''} DETECTE${pending.length>1?'S':''}</div>
     <p style="font-family:var(--mono);font-size:10px;color:var(--muted);line-height:1.6">Des paiements recurrents identifies. Allez dans <b style="color:var(--text)">Abos</b> pour les valider.</p>
   </div>`:'';
-  const isPDF=tab==='pdf';
+  const isCSV=tab==='csv',isPDF=tab==='pdf',isImage=tab==='image';
   const csvBanks=["Caisse d'Epargne",'Boursobank','BNP','SG','Credit Agricole','LCL','CIC','Revolut','N26'];
-  const pdfBanks=['Caisse d\'Epargne','BNP Paribas','Societe Generale','LCL','Credit Agricole','CIC'];
-  const banks=isPDF?pdfBanks:csvBanks;
+  const pdfBanks=["Caisse d'Epargne",'BNP Paribas','Societe Generale','LCL','Credit Agricole','CIC'];
+  const imgBanks=['App bancaire','Screenshot','Capture photo','Scan document'];
+  const banks=isPDF?pdfBanks:isImage?imgBanks:csvBanks;
+  const dropIcon=isPDF?'📑':isImage?'📷':'📂';
+  const btnLabel=isPDF?'Choisir un fichier PDF':isImage?'Choisir une capture':'Choisir un fichier CSV';
+  const inputId=isPDF?'pdfInput':isImage?'imageOcrInput':'csvInput';
+  const descTxt=isPDF
+    ?'Selectionnez votre <b style="color:var(--text)">relevé PDF</b> directement depuis votre banque.'
+    :isImage
+      ?'Photographiez ou prenez une <b style="color:var(--text)">capture d\'écran</b> de votre app bancaire (JPG, PNG, WebP).'
+      :'Exportez vos operations au format <b style="color:var(--text)">CSV</b> depuis votre banque, puis selectionnez le fichier.';
   return `<div class="card">
     <div class="card-t">Importer depuis votre banque</div>
     <div class="file-tab-row">
-      <button class="file-tab${!isPDF?' on':''}" onclick="switchImportTab('csv')">
+      <button class="file-tab${isCSV?' on':''}" onclick="switchImportTab('csv')">
         <div style="font-size:18px;margin-bottom:4px">📄</div>
         <div style="font-size:10px;font-weight:700;letter-spacing:1px">CSV</div>
         <div style="font-size:8px;opacity:.6;margin-top:2px">Export banque</div>
@@ -1461,24 +1545,30 @@ function rImport(){
         <div style="font-size:10px;font-weight:700;letter-spacing:1px">PDF</div>
         <div style="font-size:8px;opacity:.6;margin-top:2px">Relevé banque</div>
       </button>
+      <button class="file-tab${isImage?' on':''}" onclick="switchImportTab('image')">
+        <div style="font-size:18px;margin-bottom:4px">📷</div>
+        <div style="font-size:10px;font-weight:700;letter-spacing:1px">IMAGE</div>
+        <div style="font-size:8px;opacity:.6;margin-top:2px">Capture écran</div>
+      </button>
     </div>
-    <p style="font-size:12px;color:var(--dim);margin-bottom:14px;line-height:1.7">${isPDF?'Selectionnez votre <b style="color:var(--text)">relevé PDF</b> directement depuis votre banque.':'Exportez vos operations au format <b style="color:var(--text)">CSV</b> depuis votre banque, puis selectionnez le fichier.'}</p>
+    <p style="font-size:12px;color:var(--dim);margin-bottom:14px;line-height:1.7">${descTxt}</p>
     ${detTeaser}
     <div id="dropZone" style="border:2px dashed var(--border2);border-radius:12px;padding:24px 16px;text-align:center;margin-bottom:4px;transition:border-color .2s"
          ondragover="event.preventDefault();this.style.borderColor='var(--gold)'"
          ondragleave="this.style.borderColor='var(--border2)'"
          ondrop="this.style.borderColor='var(--border2)';event.preventDefault();startImport(event.dataTransfer.files[0])">
-      <div style="font-size:28px;margin-bottom:10px">${isPDF?'📑':'📂'}</div>
-      <button onclick="document.getElementById('${isPDF?'pdfInput':'csvInput'}').click()"
+      <div style="font-size:28px;margin-bottom:10px">${dropIcon}</div>
+      <button onclick="document.getElementById('${inputId}').click()"
               style="background:var(--gold);color:var(--bg);border:none;font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase;padding:13px 28px;border-radius:8px;cursor:pointer;display:block;width:100%;margin-bottom:10px">
-        Choisir un fichier ${isPDF?'PDF':'CSV'}
+        ${btnLabel}
       </button>
-      <div style="font-family:var(--mono);font-size:10px;color:var(--muted)">ou glisser-deposer ici</div>
+      <div style="font-family:var(--mono);font-size:10px;color:var(--muted)">${isImage?'Formats : JPG · PNG · WebP · GIF':'ou glisser-deposer ici'}</div>
       <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:12px;justify-content:center">
         ${banks.map(b=>`<span style="background:var(--bg3);border:1px solid var(--border);font-family:var(--mono);font-size:8px;color:var(--muted);padding:3px 7px;border-radius:10px">${b}</span>`).join('')}
       </div>
     </div>
     <div id="importStatus" style="display:none;padding:12px 0;text-align:center">
+      <img id="ocrImgPreview" src="" alt="">
       <div style="font-family:var(--mono);font-size:11px;color:var(--green);margin-bottom:8px" id="importStatusMsg">Lecture en cours...</div>
       <div style="height:4px;background:var(--border);border-radius:2px;overflow:hidden">
         <div id="importProgressBar" style="height:4px;background:var(--green);border-radius:2px;width:0%;transition:width .3s"></div>
@@ -1608,9 +1698,52 @@ async function startImportPDF(file){
   }
 }
 
+// ── OCR IMAGE IMPORT ─────────────────────────────────────────
+async function startImportImage(file){
+  if(!file)return;
+  if(cv!=='import'){navTo('import');await new Promise(r=>setTimeout(r,120));}
+  const statusEl=document.getElementById('importStatus');
+  const msgEl=document.getElementById('importStatusMsg');
+  const pbEl=document.getElementById('importProgressBar');
+  const prev=document.getElementById('ocrImgPreview');
+  if(statusEl)statusEl.style.display='block';
+  if(prev){prev.src=URL.createObjectURL(file);prev.style.display='block';}
+  const sp=(w,m)=>{if(pbEl)pbEl.style.width=w+'%';if(msgEl)msgEl.textContent=m;};
+  sp(5,'Chargement moteur OCR\u2026');
+  try{
+    if(typeof Tesseract==='undefined'){toast('Tesseract.js non charge','err');if(statusEl)statusEl.style.display='none';return;}
+    const result=await Tesseract.recognize(file,'fra',{
+      logger:m=>{if(m.status==='recognizing text')sp(Math.round(m.progress*75)+10,'OCR : '+Math.round(m.progress*100)+'%');}
+    });
+    sp(88,'Analyse des transactions\u2026');
+    const rows=[];
+    result.data.text.split('\n').forEach(line=>{
+      const parsed=parsePDFLine(line.trim());
+      if(!parsed)return;
+      const{dateStr,amount,label}=parsed;
+      const isDup=data.t.some(t=>t.d===dateStr&&Math.abs(t.a-Math.abs(amount))<0.01);
+      rows.push({date:dateStr,label,amount,cat:ruleCat(label),isDup});
+    });
+    sp(100,'');
+    setTimeout(()=>{if(statusEl)statusEl.style.display='none';if(prev){prev.src='';prev.style.display='none';}},700);
+    _importPreview=rows;
+    if(rows.length)detectRecurring(rows.map(r=>({date:r.date,label:r.label,amount:r.amount})));
+    const pel=document.getElementById('importPreview');
+    if(pel)pel.innerHTML=buildPreviewTable();
+    if(!rows.length)toast('Aucune transaction detectee \u2014 verifiez l\'image','warn');
+    else toast(rows.length+' ligne'+(rows.length>1?'s':'')+' extraite'+(rows.length>1?'s':'')+' de l\'image');
+  }catch(e){
+    console.error('OCR error',e);
+    toast('Erreur OCR : '+e.message,'err');
+    if(statusEl)statusEl.style.display='none';
+    if(prev){prev.src='';prev.style.display='none';}
+  }
+}
+
 function startImport(file){
   if(!file){toast('Aucun fichier selectionne','err');return;}
   if(file.name.toLowerCase().endsWith('.pdf')){startImportPDF(file);return;}
+  if(/\.(jpe?g|png|gif|webp|bmp)$/i.test(file.name)){startImportImage(file);return;}
   const statusEl=document.getElementById('importStatus');
   const msgEl=document.getElementById('importStatusMsg');
   const pbEl=document.getElementById('importProgressBar');
@@ -1781,6 +1914,17 @@ document.getElementById('pdfInput').addEventListener('change',function(){
 document.getElementById('photoInput').addEventListener('change',function(){
   const file=this.files[0]; if(!file)return;
   saveProfilePhoto(file);
+  this.value='';
+});
+document.getElementById('logoInput').addEventListener('change',function(){
+  const file=this.files[0];if(!file)return;
+  saveCustomLogo(file);this.value='';
+});
+document.getElementById('imageOcrInput').addEventListener('change',function(){
+  const file=this.files[0];if(!file)return;
+  _importTab='image';
+  if(cv!=='import'){navTo('import');setTimeout(()=>startImportImage(file),120);}
+  else startImportImage(file);
   this.value='';
 });
 
