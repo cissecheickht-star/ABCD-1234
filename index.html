@@ -611,35 +611,61 @@ function navTo(v){const btn=document.querySelector(`.bnav-btn[data-v="${v}"]`);i
 function mtx(){return data.t.filter(t=>{const d=new Date(t.d);return d.getMonth()===sm&&d.getFullYear()===sy;});}
 function mSubsTx(){
   const result=[];
-  const viewDate=new Date(sy,sm,1);
+  const viewM=sm, viewY=sy;
   (data.s||[]).filter(s=>s.active!==false).forEach(s=>{
-    // Calculate if this sub falls in the viewed month
-    // For monthly+: always appears every month from start
-    // We check if the sub was active before or during this month
     const nd=new Date(s.next);
     const freq=s.freq||'monthly';
-    // Simple: if next date is in this month, show it
-    if(nd.getMonth()===sm&&nd.getFullYear()===sy){
+    const fDays=freqDays(freq);
+    // 1) If the sub's next date is exactly this viewed month — show it as-is
+    if(nd.getMonth()===viewM&&nd.getFullYear()===viewY){
       result.push({id:'sub_'+s.id,lb:s.name,a:s.a,c:s._cat||'Loisirs',d:s.next,tp:s._tp||'e',_isSub:true,_sub:s});
       return;
     }
-    // Previsional: for the CURRENT month only, auto-inject all active monthly/weekly subs
-    // even if their next date hasn't been renewed yet (vision prévisionnelle)
-    const now=new Date();
-    if(sm===now.getMonth()&&sy===now.getFullYear()){
-      // Sub is active and recurring — inject it for this month
-      const fDays=freqDays(freq);
-      if(fDays<=31.5){ // weekly or monthly
+    // 2) Projection infinie : pour les récurrents monthly/weekly, injecter sur TOUS les mois
+    //    (passés et futurs) tant que le sub est actif — vision prévisionnelle complète
+    if(fDays<=31.5){ // weekly ou monthly → on projette chaque mois
+      const dayInMonth=nd.getDate();
+      const maxDay=new Date(viewY,viewM+1,0).getDate();
+      const synthDay=Math.min(dayInMonth,maxDay);
+      const synthDate=`${viewY}-${String(viewM+1).padStart(2,'0')}-${String(synthDay).padStart(2,'0')}`;
+      // Vérifier qu'il n'y a pas déjà une transaction manuelle correspondante
+      const alreadyManual=data.t.some(t=>{
+        const td=new Date(t.d);
+        return td.getMonth()===viewM&&td.getFullYear()===viewY&&t.lb===s.name&&Math.abs(t.a-s.a)<0.5;
+      });
+      if(!alreadyManual){
+        result.push({id:'sub_auto_'+s.id+'_'+viewY+viewM,lb:s.name,a:s.a,c:s._cat||'Loisirs',d:synthDate,tp:s._tp||'e',_isSub:true,_sub:s,_auto:true});
+      }
+    } else if(fDays<=92){ // quarterly : vérifier si ce mois tombe dans le cycle
+      const startM=nd.getMonth(), startY=nd.getFullYear();
+      const diff=(viewY-startY)*12+(viewM-startM);
+      if(diff>=0&&diff%3===0){
         const dayInMonth=nd.getDate();
-        const synthDate=`${sy}-${String(sm+1).padStart(2,'0')}-${String(Math.min(dayInMonth,new Date(sy,sm+1,0).getDate())).padStart(2,'0')}`;
-        // Only if not already a manual transaction matching this sub
-        const alreadyManual=data.t.some(t=>{
-          const td=new Date(t.d);
-          return td.getMonth()===sm&&td.getFullYear()===sy&&t.lb===s.name&&Math.abs(t.a-s.a)<0.5;
-        });
-        if(!alreadyManual){
-          result.push({id:'sub_auto_'+s.id,lb:s.name,a:s.a,c:s._cat||'Loisirs',d:synthDate,tp:s._tp||'e',_isSub:true,_sub:s,_auto:true});
-        }
+        const maxDay=new Date(viewY,viewM+1,0).getDate();
+        const synthDay=Math.min(dayInMonth,maxDay);
+        const synthDate=`${viewY}-${String(viewM+1).padStart(2,'0')}-${String(synthDay).padStart(2,'0')}`;
+        const alreadyManual=data.t.some(t=>{const td=new Date(t.d);return td.getMonth()===viewM&&td.getFullYear()===viewY&&t.lb===s.name&&Math.abs(t.a-s.a)<0.5;});
+        if(!alreadyManual) result.push({id:'sub_auto_'+s.id+'_'+viewY+viewM,lb:s.name,a:s.a,c:s._cat||'Loisirs',d:synthDate,tp:s._tp||'e',_isSub:true,_sub:s,_auto:true});
+      }
+    } else if(fDays<=183){ // biannual
+      const startM=nd.getMonth(), startY=nd.getFullYear();
+      const diff=(viewY-startY)*12+(viewM-startM);
+      if(diff>=0&&diff%6===0){
+        const dayInMonth=nd.getDate();
+        const maxDay=new Date(viewY,viewM+1,0).getDate();
+        const synthDay=Math.min(dayInMonth,maxDay);
+        const synthDate=`${viewY}-${String(viewM+1).padStart(2,'0')}-${String(synthDay).padStart(2,'0')}`;
+        const alreadyManual=data.t.some(t=>{const td=new Date(t.d);return td.getMonth()===viewM&&td.getFullYear()===viewY&&t.lb===s.name&&Math.abs(t.a-s.a)<0.5;});
+        if(!alreadyManual) result.push({id:'sub_auto_'+s.id+'_'+viewY+viewM,lb:s.name,a:s.a,c:s._cat||'Loisirs',d:synthDate,tp:s._tp||'e',_isSub:true,_sub:s,_auto:true});
+      }
+    } else { // yearly
+      if(viewM===nd.getMonth()){
+        const dayInMonth=nd.getDate();
+        const maxDay=new Date(viewY,viewM+1,0).getDate();
+        const synthDay=Math.min(dayInMonth,maxDay);
+        const synthDate=`${viewY}-${String(viewM+1).padStart(2,'0')}-${String(synthDay).padStart(2,'0')}`;
+        const alreadyManual=data.t.some(t=>{const td=new Date(t.d);return td.getMonth()===viewM&&td.getFullYear()===viewY&&t.lb===s.name&&Math.abs(t.a-s.a)<0.5;});
+        if(!alreadyManual) result.push({id:'sub_auto_'+s.id+'_'+viewY+viewM,lb:s.name,a:s.a,c:s._cat||'Loisirs',d:synthDate,tp:s._tp||'e',_isSub:true,_sub:s,_auto:true});
       }
     }
   });
@@ -680,14 +706,29 @@ function rDash(){
   const exp=txs.filter(t=>t.tp==='e').reduce((s,t)=>s+t.a,0);
   const bal=inc-exp;
   const byCat=CATS.map(c=>({...c,total:txs.filter(t=>t.tp==='e'&&t.c===c.name).reduce((s,t)=>s+t.a,0)})).filter(c=>c.total>0);
-  // 6 month data
+  // 6 month data — inclut les récurrents projetés sur chaque mois
   let m6=[];
+  const activeSubs6=(data.s||[]).filter(s=>s.active!==false);
   for(let i=5;i>=0;i--){
     const dt=new Date(sy,sm-i,1),mm=dt.getMonth(),yy=dt.getFullYear();
     const ts=data.t.filter(t=>{const d=new Date(t.d);return d.getMonth()===mm&&d.getFullYear()===yy;});
-    const subM=(data.s||[]).filter(s=>s.active!==false).filter(s=>{const nd=new Date(s.next);return nd.getMonth()===mm&&nd.getFullYear()===yy;});
-    const subInc=subM.filter(s=>s._tp==='i').reduce((s,x)=>s+x.a,0);
-    const subExp=subM.filter(s=>s._tp!=='i').reduce((s,x)=>s+x.a,0);
+    // Projeter TOUS les récurrents actifs monthly/weekly sur chaque mois
+    let subInc=0, subExp=0;
+    activeSubs6.forEach(s=>{
+      const freq=s.freq||'monthly';const fDays=freqDays(freq);
+      const nd=new Date(s.next);
+      let shouldInclude=false;
+      if(nd.getMonth()===mm&&nd.getFullYear()===yy) shouldInclude=true;
+      else if(fDays<=31.5) shouldInclude=true; // monthly/weekly → chaque mois
+      else if(fDays<=92){const diff=(yy-nd.getFullYear())*12+(mm-nd.getMonth());shouldInclude=diff>=0&&diff%3===0;}
+      else if(fDays<=183){const diff=(yy-nd.getFullYear())*12+(mm-nd.getMonth());shouldInclude=diff>=0&&diff%6===0;}
+      else{shouldInclude=mm===nd.getMonth();}
+      if(shouldInclude){
+        // Vérifier pas de doublon avec transaction manuelle
+        const dup=ts.some(t=>t.lb===s.name&&Math.abs(t.a-s.a)<0.5);
+        if(!dup){if(s._tp==='i') subInc+=s.a; else subExp+=s.a;}
+      }
+    });
     const ii=ts.filter(t=>t.tp==='i').reduce((s,t)=>s+t.a,0)+subInc;
     const ee=ts.filter(t=>t.tp==='e').reduce((s,t)=>s+t.a,0)+subExp;
     m6.push({l:MSH[mm],i:ii,e:ee});
@@ -963,12 +1004,25 @@ function rCalendar(){
     if(!evMap[d])evMap[d]=[];
     evMap[d].push({color:t.tp==='i'?'var(--green)':'var(--pink)',amount:t.a,tp:t.tp,label:t.lb});
   });
+  // Projeter les récurrents sur le mois visualisé (projection infinie)
   (data.s||[]).filter(s=>s.active!==false).forEach(s=>{
     const nd=new Date(s.next);
-    if(nd.getMonth()===sm&&nd.getFullYear()===sy){
-      const d=nd.getDate();
-      if(!evMap[d])evMap[d]=[];
-      evMap[d].push({color:'var(--blue)',amount:s.a,tp:'e',label:s.name,domain:s.domain,type:'sub'});
+    const freq=s.freq||'monthly';const fDays=freqDays(freq);
+    let shouldInclude=false;
+    if(nd.getMonth()===sm&&nd.getFullYear()===sy) shouldInclude=true;
+    else if(fDays<=31.5) shouldInclude=true;
+    else if(fDays<=92){const diff=(sy-nd.getFullYear())*12+(sm-nd.getMonth());shouldInclude=diff>=0&&diff%3===0;}
+    else if(fDays<=183){const diff=(sy-nd.getFullYear())*12+(sm-nd.getMonth());shouldInclude=diff>=0&&diff%6===0;}
+    else{shouldInclude=sm===nd.getMonth();}
+    if(shouldInclude){
+      const maxDay=new Date(sy,sm+1,0).getDate();
+      const d=Math.min(nd.getDate(),maxDay);
+      // Pas de doublon si déjà une transaction manuelle
+      const dup=data.t.some(t=>{const td=new Date(t.d);return td.getMonth()===sm&&td.getFullYear()===sy&&t.lb===s.name&&Math.abs(t.a-s.a)<0.5;});
+      if(!dup){
+        if(!evMap[d])evMap[d]=[];
+        evMap[d].push({color:s._tp==='i'?'var(--green)':'var(--blue)',amount:s.a,tp:s._tp||'e',label:s.name,domain:s.domain,type:'sub'});
+      }
     }
   });
 
