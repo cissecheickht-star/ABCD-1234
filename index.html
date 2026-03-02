@@ -55,7 +55,7 @@
 /* ── HELLO KITTY THEME ── */
 [data-theme="kitty"]{
   --bg:#FFF0F5;--bg2:#FFF5F8;--bg3:#FFE4EE;--border:rgba(255,105,180,.2);--border2:rgba(255,105,180,.38);
-  --text:#4A1535;--dim:#9B5D7A;--muted:#C090B0;
+  --text:#4A1535;--dim:#7A3D5A;--muted:#8B5070;
   --gold:#FF69B4;--green:#FF85C2;--pink:#E91E8C;--blue:#9B59B6;--red:#CC0066;--purple:#7C3AED;
 }
 [data-theme="kitty"] body{background:#FFF0F5}
@@ -85,7 +85,7 @@
 [data-theme="kitty"] .card-t::before{content:'✨ ';letter-spacing:0}
 [data-theme="kitty"] .hdr-avatar{color:#fff}
 [data-theme="kitty"] .sub-nm,[data-theme="kitty"] .asset-nm{color:#4A1535}
-[data-theme="kitty"] .fi::placeholder,[data-theme="kitty"] .fs::placeholder{color:#C090B0}
+[data-theme="kitty"] .fi::placeholder,[data-theme="kitty"] .fs::placeholder{color:#8B5070}
 [data-theme="kitty"] .fi:focus,[data-theme="kitty"] .fs:focus{border-color:#FF69B4;box-shadow:0 0 0 3px rgba(255,105,180,.15);color:#2D0A1E}
 [data-theme="kitty"] .kpi-v{color:#4A1535}
 [data-theme="kitty"] .tx-lb{color:#4A1535}
@@ -511,9 +511,36 @@ function loadData(){
 }
 let data=loadData();
 function save(){
-  try{localStorage.setItem('bpro2',JSON.stringify(data));}
-  catch(e){toast('Stockage plein — exportez vos données !','err');}
+  try{
+    const json=JSON.stringify(data);
+    const sizeKB=Math.round(json.length/1024);
+    localStorage.setItem('bpro2',json);
+    if(sizeKB>3500)toast('⚠ Stockage à '+sizeKB+'Ko/5Mo — pensez à exporter','warn');
+  }catch(e){toast('Stockage plein — exportez vos données !','err');}
 }
+// Auto-réduction mensuelle des dettes (exécuté 1x par session au chargement)
+(function autoReduceDebts(){
+  const key='_debtAutoReduce';
+  const now=new Date();
+  const curMonth=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+  const last=localStorage.getItem(key);
+  if(last===curMonth)return; // déjà exécuté ce mois
+  let changed=false;
+  (data.debts||[]).forEach(d=>{
+    if(!d.mensualite||d.mensualite<=0||d.val<=0)return;
+    // Calculer combien de mois se sont écoulés depuis le dernier paiement auto
+    const lastPay=(d.payments||[]).filter(p=>p._auto).sort((a,b)=>b.d.localeCompare(a.d))[0];
+    const lastAutoMonth=lastPay?lastPay.d.substring(0,7):localStorage.getItem(key)||'';
+    if(lastAutoMonth>=curMonth)return;
+    const amt=Math.min(d.mensualite,d.val);
+    d.val=Math.round((d.val-amt)*100)/100;
+    if(!d.payments)d.payments=[];
+    d.payments.push({a:amt,d:now.toISOString().split('T')[0],_auto:true});
+    changed=true;
+  });
+  localStorage.setItem(key,curMonth);
+  if(changed)save();
+})();
 
 // ═══════════════════════════════════════════════════════════
 // HELPERS
@@ -612,66 +639,74 @@ function mtx(){return data.t.filter(t=>{const d=new Date(t.d);return d.getMonth(
 function mSubsTx(){
   const result=[];
   const viewM=sm, viewY=sy;
+  const viewDate=new Date(viewY,viewM,1);
   (data.s||[]).filter(s=>s.active!==false).forEach(s=>{
     const nd=new Date(s.next);
     const freq=s.freq||'monthly';
     const fDays=freqDays(freq);
-    // 1) If the sub's next date is exactly this viewed month — show it as-is
+    // Borne : ne projeter qu'à partir du mois de la startDate (ou next date si pas de startDate)
+    const origin=s.startDate?new Date(s.startDate):nd;
+    const originM=origin.getFullYear()*12+origin.getMonth();
+    const viewMabs=viewY*12+viewM;
+    if(viewMabs<originM) return; // mois vu est AVANT le début du sub → skip
+    // Exact month match
     if(nd.getMonth()===viewM&&nd.getFullYear()===viewY){
       result.push({id:'sub_'+s.id,lb:s.name,a:s.a,c:s._cat||'Loisirs',d:s.next,tp:s._tp||'e',_isSub:true,_sub:s});
       return;
     }
-    // 2) Projection infinie : pour les récurrents monthly/weekly, injecter sur TOUS les mois
-    //    (passés et futurs) tant que le sub est actif — vision prévisionnelle complète
-    if(fDays<=31.5){ // weekly ou monthly → on projette chaque mois
-      const dayInMonth=nd.getDate();
-      const maxDay=new Date(viewY,viewM+1,0).getDate();
-      const synthDay=Math.min(dayInMonth,maxDay);
-      const synthDate=`${viewY}-${String(viewM+1).padStart(2,'0')}-${String(synthDay).padStart(2,'0')}`;
-      // Vérifier qu'il n'y a pas déjà une transaction manuelle correspondante
-      const alreadyManual=data.t.some(t=>{
-        const td=new Date(t.d);
-        return td.getMonth()===viewM&&td.getFullYear()===viewY&&t.lb===s.name&&Math.abs(t.a-s.a)<0.5;
-      });
-      if(!alreadyManual){
-        result.push({id:'sub_auto_'+s.id+'_'+viewY+viewM,lb:s.name,a:s.a,c:s._cat||'Loisirs',d:synthDate,tp:s._tp||'e',_isSub:true,_sub:s,_auto:true});
-      }
-    } else if(fDays<=92){ // quarterly : vérifier si ce mois tombe dans le cycle
-      const startM=nd.getMonth(), startY=nd.getFullYear();
-      const diff=(viewY-startY)*12+(viewM-startM);
-      if(diff>=0&&diff%3===0){
-        const dayInMonth=nd.getDate();
-        const maxDay=new Date(viewY,viewM+1,0).getDate();
-        const synthDay=Math.min(dayInMonth,maxDay);
-        const synthDate=`${viewY}-${String(viewM+1).padStart(2,'0')}-${String(synthDay).padStart(2,'0')}`;
-        const alreadyManual=data.t.some(t=>{const td=new Date(t.d);return td.getMonth()===viewM&&td.getFullYear()===viewY&&t.lb===s.name&&Math.abs(t.a-s.a)<0.5;});
-        if(!alreadyManual) result.push({id:'sub_auto_'+s.id+'_'+viewY+viewM,lb:s.name,a:s.a,c:s._cat||'Loisirs',d:synthDate,tp:s._tp||'e',_isSub:true,_sub:s,_auto:true});
-      }
-    } else if(fDays<=183){ // biannual
-      const startM=nd.getMonth(), startY=nd.getFullYear();
-      const diff=(viewY-startY)*12+(viewM-startM);
-      if(diff>=0&&diff%6===0){
-        const dayInMonth=nd.getDate();
-        const maxDay=new Date(viewY,viewM+1,0).getDate();
-        const synthDay=Math.min(dayInMonth,maxDay);
-        const synthDate=`${viewY}-${String(viewM+1).padStart(2,'0')}-${String(synthDay).padStart(2,'0')}`;
-        const alreadyManual=data.t.some(t=>{const td=new Date(t.d);return td.getMonth()===viewM&&td.getFullYear()===viewY&&t.lb===s.name&&Math.abs(t.a-s.a)<0.5;});
-        if(!alreadyManual) result.push({id:'sub_auto_'+s.id+'_'+viewY+viewM,lb:s.name,a:s.a,c:s._cat||'Loisirs',d:synthDate,tp:s._tp||'e',_isSub:true,_sub:s,_auto:true});
-      }
-    } else { // yearly
-      if(viewM===nd.getMonth()){
-        const dayInMonth=nd.getDate();
-        const maxDay=new Date(viewY,viewM+1,0).getDate();
-        const synthDay=Math.min(dayInMonth,maxDay);
-        const synthDate=`${viewY}-${String(viewM+1).padStart(2,'0')}-${String(synthDay).padStart(2,'0')}`;
-        const alreadyManual=data.t.some(t=>{const td=new Date(t.d);return td.getMonth()===viewM&&td.getFullYear()===viewY&&t.lb===s.name&&Math.abs(t.a-s.a)<0.5;});
-        if(!alreadyManual) result.push({id:'sub_auto_'+s.id+'_'+viewY+viewM,lb:s.name,a:s.a,c:s._cat||'Loisirs',d:synthDate,tp:s._tp||'e',_isSub:true,_sub:s,_auto:true});
-      }
-    }
+    // Helpers
+    const synthD=()=>{const day=nd.getDate(),max=new Date(viewY,viewM+1,0).getDate();return `${viewY}-${String(viewM+1).padStart(2,'0')}-${String(Math.min(day,max)).padStart(2,'0')}`;};
+    const noDup=()=>!data.t.some(t=>{const td=new Date(t.d);return td.getMonth()===viewM&&td.getFullYear()===viewY&&t.lb===s.name&&Math.abs(t.a-s.a)<0.5;});
+    const push=()=>{if(noDup())result.push({id:'sub_auto_'+s.id+'_'+viewY+viewM,lb:s.name,a:s.a,c:s._cat||'Loisirs',d:synthD(),tp:s._tp||'e',_isSub:true,_sub:s,_auto:true});};
+    const diff=(viewY-nd.getFullYear())*12+(viewM-nd.getMonth());
+    if(fDays<=31.5) push(); // monthly/weekly
+    else if(fDays<=92&&diff>=0&&diff%3===0) push(); // quarterly
+    else if(fDays<=183&&diff>=0&&diff%6===0) push(); // biannual
+    else if(fDays>183&&viewM===nd.getMonth()&&viewY>=nd.getFullYear()) push(); // yearly (borne année)
   });
   return result;
 }
 function mtxAll(){return [...mtx(),...mSubsTx()];}
+// Calcul du solde cumulé depuis le 1er mois avec des données
+function calcSoldeGlissant(targetM,targetY){
+  // Trouver le mois le plus ancien
+  const allDates=(data.t||[]).map(t=>new Date(t.d));
+  const origins=(data.s||[]).filter(s=>s.active!==false).map(s=>new Date(s.startDate||s.next));
+  allDates.push(...origins);
+  if(!allDates.length) return 0;
+  let minY=targetY, minM=targetM;
+  allDates.forEach(d=>{if(!isNaN(d)&&(d.getFullYear()<minY||(d.getFullYear()===minY&&d.getMonth()<minM))){minY=d.getFullYear();minM=d.getMonth();}});
+  // Accumuler mois par mois
+  let solde=0;
+  const activeSubs=(data.s||[]).filter(s=>s.active!==false);
+  for(let y=minY,m=minM;;){
+    if(y>targetY||(y===targetY&&m>targetM)) break;
+    // Transactions manuelles du mois
+    const txM=data.t.filter(t=>{const d=new Date(t.d);return d.getMonth()===m&&d.getFullYear()===y;});
+    solde+=txM.filter(t=>t.tp==='i').reduce((s,t)=>s+t.a,0);
+    solde-=txM.filter(t=>t.tp==='e').reduce((s,t)=>s+t.a,0);
+    // Abonnements projetés ce mois
+    activeSubs.forEach(s=>{
+      const nd=new Date(s.next);const org=new Date(s.startDate||s.next);
+      const orgAbs=org.getFullYear()*12+org.getMonth();
+      if(y*12+m<orgAbs) return;
+      const f=freqDays(s.freq||'monthly');
+      const df=(y-nd.getFullYear())*12+(m-nd.getMonth());
+      let inc=false;
+      if(nd.getMonth()===m&&nd.getFullYear()===y) inc=true;
+      else if(f<=31.5) inc=true;
+      else if(f<=92&&df>=0&&df%3===0) inc=true;
+      else if(f<=183&&df>=0&&df%6===0) inc=true;
+      else if(f>183&&m===nd.getMonth()&&y>=nd.getFullYear()) inc=true;
+      if(inc){
+        const dup=txM.some(t=>t.lb===s.name&&Math.abs(t.a-s.a)<0.5);
+        if(!dup){if(s._tp==='i')solde+=s.a;else solde-=s.a;}
+      }
+    });
+    m++;if(m>11){m=0;y++;}
+  }
+  return Math.round(solde*100)/100;
+}
 function getUpcoming(days){return (data.s||[]).filter(s=>s.active!==false).filter(s=>{const d=daysUntil(s.next);return d>=0&&d<=days;}).sort((a,b)=>daysUntil(a.next)-daysUntil(b.next));}
 
 // ═══════════════════════════════════════════════════════════
@@ -704,7 +739,8 @@ function rDash(){
   const txs=mtxAll();
   const inc=txs.filter(t=>t.tp==='i').reduce((s,t)=>s+t.a,0);
   const exp=txs.filter(t=>t.tp==='e').reduce((s,t)=>s+t.a,0);
-  const bal=inc-exp;
+  const moBalance=inc-exp; // solde du mois courant seulement
+  const bal=calcSoldeGlissant(sm,sy); // solde cumulé (glissant)
   const byCat=CATS.map(c=>({...c,total:txs.filter(t=>t.tp==='e'&&t.c===c.name).reduce((s,t)=>s+t.a,0)})).filter(c=>c.total>0);
   // 6 month data — inclut les récurrents projetés sur chaque mois
   let m6=[];
@@ -792,15 +828,12 @@ function ruleBar(label,actual,target,inc,color){const pct=inc>0?Math.round(actua
 // ── Projection 12 mois ──────────────────────────────────
 let _projChart=null;
 function calcProjection12(){
-  const txs=mtxAll();
-  const currentInc=txs.filter(t=>t.tp==='i').reduce((s,t)=>s+t.a,0);
-  const currentExp=txs.filter(t=>t.tp==='e').reduce((s,t)=>s+t.a,0);
-  const currentBalance=currentInc-currentExp;
+  // Démarre depuis le solde glissant cumulé (pas juste le mois courant)
+  const currentBalance=calcSoldeGlissant(sm,sy);
   const activeSubs=(data.s||[]).filter(s=>s.active!==false);
   const moIncome=activeSubs.filter(s=>s._tp==='i').reduce((s,x)=>s+monthlyEquiv(x.a,x.freq),0);
   const moExpense=activeSubs.filter(s=>s._tp!=='i').reduce((s,x)=>s+monthlyEquiv(x.a,x.freq),0);
-  // Include debt mensualités in projection
-  const moDebt=(data.debts||[]).reduce((s,d)=>s+(d.mensualite||0),0);
+  const moDebt=(data.debts||[]).filter(d=>d.val>0).reduce((s,d)=>s+(d.mensualite||0),0);
   const proj=[];
   let bal=currentBalance;
   for(let i=0;i<12;i++){
@@ -825,11 +858,14 @@ function calcResteAVivre(){
   const activeSubs=(data.s||[]).filter(s=>s.active!==false);
   const moIncome=activeSubs.filter(s=>s._tp==='i').reduce((s,x)=>s+monthlyEquiv(x.a,x.freq),0);
   const moExpense=activeSubs.filter(s=>s._tp!=='i').reduce((s,x)=>s+monthlyEquiv(x.a,x.freq),0);
-  // Also count salary from current month transactions
+  const moDebt=(data.debts||[]).filter(d=>d.val>0).reduce((s,d)=>s+(d.mensualite||0),0);
+  // Revenus manuels exceptionnels du mois (bonus, primes...) qui NE sont PAS dans les subs
   const txs=mtxAll();
-  const txIncome=txs.filter(t=>t.tp==='i').reduce((s,t)=>s+t.a,0);
-  const totalIncome=Math.max(moIncome,txIncome);
-  return {income:totalIncome,charges:moExpense,reste:totalIncome-moExpense,details:{moIncome,moExpense,txIncome}};
+  const txManualInc=txs.filter(t=>t.tp==='i'&&!t._isSub).reduce((s,t)=>s+t.a,0);
+  // Total = revenus récurrents + revenus exceptionnels manuels
+  const totalIncome=moIncome+txManualInc;
+  const totalCharges=moExpense+moDebt;
+  return {income:totalIncome,charges:totalCharges,reste:totalIncome-totalCharges,details:{moIncome,moExpense,moDebt,txManualInc}};
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1227,19 +1263,30 @@ function saveProfileForm(){
   toast('Profil enregistre');
   render();
 }
+function compressImage(file,maxW,quality){
+  return new Promise(resolve=>{
+    const img=new Image();
+    img.onload=()=>{
+      const ratio=Math.min(maxW/img.width,maxW/img.height,1);
+      const c=document.createElement('canvas');
+      c.width=img.width*ratio;c.height=img.height*ratio;
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+      resolve(c.toDataURL('image/jpeg',quality||0.7));
+    };
+    img.src=URL.createObjectURL(file);
+  });
+}
 function saveProfilePhoto(file){
   if(!file)return;
-  if(file.size>2*1024*1024){toast('Image trop grande (max 2 Mo)','err');return;}
-  const reader=new FileReader();
-  reader.onload=function(e){
+  if(file.size>5*1024*1024){toast('Image trop grande (max 5 Mo)','err');return;}
+  compressImage(file,256,0.7).then(dataUrl=>{
     const p=getProfile();
-    p.photo=e.target.result;
+    p.photo=dataUrl;
     saveProfileData(p);
     updateHeaderProfile();
-    toast('Photo mise a jour');
+    toast('Photo mise à jour ('+Math.round(dataUrl.length/1024)+'Ko)');
     render();
-  };
-  reader.readAsDataURL(file);
+  });
 }
 function shareApp(){
   let html=document.documentElement.outerHTML;
@@ -1399,14 +1446,13 @@ function triggerLogoUpload(subId){
 }
 function saveCustomLogo(file){
   if(!file||!_editingLogoSubId){return;}
-  if(file.size>600*1024){toast('Image trop grande (max 600 Ko)','err');return;}
-  const reader=new FileReader();
-  reader.onload=e=>{
-    localStorage.setItem('logo_'+_editingLogoSubId,e.target.result);
+  if(file.size>2*1024*1024){toast('Image trop grande (max 2 Mo)','err');return;}
+  const sid=_editingLogoSubId;
+  compressImage(file,64,0.6).then(dataUrl=>{
+    localStorage.setItem('logo_'+sid,dataUrl);
     _editingLogoSubId=null;
-    toast('Logo mis a jour');render();
-  };
-  reader.readAsDataURL(file);
+    toast('Logo mis à jour ('+Math.round(dataUrl.length/1024)+'Ko)');render();
+  });
 }
 function deleteCustomLogo(subId){
   localStorage.removeItem('logo_'+subId);
@@ -1906,90 +1952,296 @@ function rImport(){
   <div id="importPreview"></div>`;
 }
 
-// ── PDF IMPORT ──────────────────────────────────────────────
+// ── PDF IMPORT — Relevés bancaires FR (CE, BNP, SG, CA, LCL, CIC) ──
 async function readPDFFile(file){
-  if(typeof pdfjsLib==='undefined'){toast('PDF.js non charge','err');return null;}
+  if(typeof pdfjsLib==='undefined'){toast('PDF.js non chargé','err');return null;}
   pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   const buf=await file.arrayBuffer();
   const pdf=await pdfjsLib.getDocument({data:buf}).promise;
-  const lines=[];
+  const allRows=[];
   for(let i=1;i<=pdf.numPages;i++){
     const page=await pdf.getPage(i);
     const tc=await page.getTextContent();
-    // Group text items by Y coordinate (rounded to nearest 2px) to reconstruct visual lines
-    const rows={};
+    const rawItems=[];
     tc.items.forEach(item=>{
-      if(!item.str||!item.str.trim())return;
-      const y=Math.round(item.transform[5]/2)*2;
-      if(!rows[y])rows[y]=[];
-      rows[y].push({x:item.transform[4],t:item.str});
+      if(!item.str)return;
+      let t=item.str.replace(/[\u00a0\u2009\u202f]/g,' ').trim();
+      if(!t)return;
+      rawItems.push({x:Math.round(item.transform[4]),y:Math.round(item.transform[5]),t});
     });
-    // Sort Y descending (top of page first), X ascending within each line
-    Object.keys(rows).map(Number).sort((a,b)=>b-a).forEach(y=>{
-      const lineText=rows[y].sort((a,b)=>a.x-b.x).map(i=>i.t).join(' ').trim();
-      if(lineText)lines.push(lineText);
+    if(!rawItems.length)continue;
+    rawItems.sort((a,b)=>b.y-a.y||a.x-b.x);
+    const merged=[];
+    let curY=rawItems[0].y, curGroup=[rawItems[0]];
+    for(let j=1;j<rawItems.length;j++){
+      if(Math.abs(rawItems[j].y-curY)<=3){
+        curGroup.push(rawItems[j]);
+      }else{
+        merged.push(curGroup);
+        curY=rawItems[j].y;
+        curGroup=[rawItems[j]];
+      }
+    }
+    merged.push(curGroup);
+    merged.forEach(group=>{
+      group.sort((a,b)=>a.x-b.x);
+      const text=group.map(i=>i.t).join(' ').trim();
+      if(text)allRows.push({y:group[0].y,items:group,text,pg:i});
     });
   }
-  return lines;
+  console.log('[PDF] Pages:',pdf.numPages,'Lignes extraites:',allRows.length);
+  if(allRows.length&&allRows.length<5)console.log('[PDF] Contenu:',allRows.map(r=>r.text));
+  return allRows;
 }
+function _pdfFrAmt(s){
+  if(!s)return NaN;
+  let c=s.replace(/[\s\u00a0]/g,'');
+  const ci=c.lastIndexOf(','),di=c.lastIndexOf('.');
+  if(ci>di){c=c.replace(/\./g,'').replace(',','.');}
+  else{c=c.replace(/,/g,'');}
+  return parseFloat(c);
+}
+const _PDF_SKIP=[
+  /solde\s*(au|en|de|du|pr[eé]c[eé]dent|nouv|init|final|cr[eé]dit|d[eé]bit)/i,
+  /total\s*(des|d[e'])\s*(op[eé]r|mouv|d[eé]bit|cr[eé]dit)/i,
+  /^page\s+\d/i, /^\d+\s*\/\s*\d+$/,
+  /date\s+(d[e']\s*)?op[eé]r/i, /date\s+valeur/i,
+  /^date\s+lib[eé]ll[eé]/i, /^(iban|bic|rib)\b/i,
+  /n[°o]\s*(de\s+)?compte/i, /relev[eé]\s*(de\s+)?compte/i,
+  /arr[eê]t[eé]\s*(au|en|du)/i, /ancien\s+solde/i, /nouveau\s+solde/i,
+  /^(r[eé]capitulatif|r[eé]sum[eé]|synth[eè]se)/i,
+  /^(monsieur|madame|m\.|mme)\s/i, /titulaire/i, /www\./i,
+  /^\s*[-=_]{3,}\s*$/, /courrier|adresse|t[eé]l[eé]phone/i,
+  /^(d[eé]bit|cr[eé]dit|montant|date|lib[eé]ll[eé]|op[eé]ration|nature|valeur)\s*$/i,
+  /^(caisse\s+d|bnp\s+par|soci[eé]t[eé]\s+g[eé]n|cr[eé]dit\s+(agri|mutu|lyon)|lcl|cic\b|banque\s+pop|la\s+banque\s+post)/i,
+  /votre\s+conseiller/i, /service\s+client/i, /agence\s+de/i
+];
+function _pdfSkip(t){return _PDF_SKIP.some(rx=>rx.test(t));}
+
+function _pdfDetectCols(rows){
+  const c={dX:-1,cX:-1,mX:-1,mode:'guess'};
+  for(const r of rows){
+    const tl=r.text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+    if(/(debit)/.test(tl)&&/(credit)/.test(tl)){
+      c.mode='debit_credit';
+      for(const it of r.items){
+        const w=it.t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+        if(/debit/.test(w))c.dX=it.x;
+        if(/credit/.test(w))c.cX=it.x;
+      }
+      break;
+    }
+    if(/montant/.test(tl)&&!/(debit|credit)/.test(tl)){
+      c.mode='single';
+      for(const it of r.items){if(/montant/i.test(it.t))c.mX=it.x;}
+      break;
+    }
+  }
+  return c;
+}
+
+function parseBankPDF(rows){
+  const results=[];
+  const cols=_pdfDetectCols(rows);
+  const dateRx=/(\d{1,2})[\/\.\-](\d{1,2})(?:[\/\.\-](\d{2,4}))?/;
+  const amtRxG=/(?<!\d)(-?\d{1,3}(?:[\s\u00a0.]\d{3})*,\d{2})\b/g;
+  const threshold=(cols.dX>=0&&cols.cX>=0)?(cols.dX+cols.cX)/2:-1;
+  let gYear=new Date().getFullYear();
+  for(const r of rows){const m4=/\b(\d{1,2})[\/\.\-](\d{1,2})[\/\.\-](20\d{2})\b/.exec(r.text);if(m4){gYear=parseInt(m4[3]);break;}}
+  let cur=null;
+  const flush=()=>{if(cur&&cur._ok&&Math.abs(cur.amount)>=0.01)results.push(cur);};
+  for(const row of rows){
+    if(_pdfSkip(row.text))continue;
+    const stripped=row.text.replace(/^\s+/,'');
+    const dm=dateRx.exec(stripped);
+    const hasDate=dm&&dm.index<15&&parseInt(dm[1])<=31&&parseInt(dm[2])<=12;
+    if(hasDate){
+      flush();
+      const day=dm[1].padStart(2,'0'),month=dm[2].padStart(2,'0');
+      const yr=dm[3]?(dm[3].length===2?'20'+dm[3]:dm[3]):String(gYear);
+      const dateStr=yr+'-'+month+'-'+day;
+      let amount=0,foundAmt=false;
+      if(cols.mode==='debit_credit'&&threshold>0){
+        for(const it of row.items){
+          const v=it.t.replace(/[\s\u00a0]/g,'');
+          if(/^\d[\d\s\u00a0.,]*\d$/.test(v)&&/[,\.]\d{2}$/.test(v)){
+            const val=_pdfFrAmt(it.t);
+            if(!isNaN(val)&&Math.abs(val)>=0.01){
+              amount=it.x<threshold?-Math.abs(val):Math.abs(val);
+              foundAmt=true;
+            }
+          }
+        }
+      }
+      if(!foundAmt){
+        const amts=[...row.text.matchAll(amtRxG)];
+        if(amts.length){
+          const raw=amts[amts.length-1][1];
+          amount=_pdfFrAmt(raw);
+          if(!isNaN(amount)&&Math.abs(amount)>=0.01){
+            foundAmt=true;
+            const before=row.text.substring(0,amts[amts.length-1].index).toLowerCase();
+            if(/(prlv|prelevement|carte|cb\s|paiement|retrait|ret\s?dab|cheque|chq|cotisation|frais|commission|agios)/.test(before))amount=-Math.abs(amount);
+            else if(/(vir\s|virement|avoir|rembours|salaire|paye|pension|alloc)/.test(before)&&amount>0)amount=Math.abs(amount);
+            if(/^-/.test(raw.replace(/[\s\u00a0]/g,'')))amount=-Math.abs(amount);
+          }
+        }
+      }
+      let label=row.text;
+      label=label.replace(/\b\d{1,2}[\/\.\-]\d{1,2}([\/\.\-]\d{2,4})?\b/g,'');
+      label=label.replace(/(?<!\d)-?\d{1,3}(?:[\s\u00a0.]\d{3})*,\d{2}/g,'');
+      label=label.replace(/\s+/g,' ').replace(/^[\s\-:.*]+|[\s\-:.*]+$/g,'').trim();
+      if(!label)label='Operation bancaire';
+      cur={dateStr,amount,label:label.substring(0,120),_ok:foundAmt};
+    }else if(cur){
+      let extra=row.text.trim();
+      if(!cur._ok){
+        if(cols.mode==='debit_credit'&&threshold>0){
+          for(const it of row.items){
+            const v=it.t.replace(/[\s\u00a0]/g,'');
+            if(/^\d[\d\s\u00a0.,]*\d$/.test(v)&&/[,\.]\d{2}$/.test(v)){
+              const val=_pdfFrAmt(it.t);
+              if(!isNaN(val)&&Math.abs(val)>=0.01){
+                cur.amount=it.x<threshold?-Math.abs(val):Math.abs(val);
+                cur._ok=true;
+                extra=extra.replace(/(?<!\d)-?\d{1,3}(?:[\s\u00a0.]\d{3})*,\d{2}/g,'').trim();
+              }
+            }
+          }
+        }
+        if(!cur._ok){
+          const amts=[...extra.matchAll(amtRxG)];
+          if(amts.length){
+            const val=_pdfFrAmt(amts[amts.length-1][1]);
+            if(!isNaN(val)&&Math.abs(val)>=0.01){cur.amount=val;cur._ok=true;extra=extra.replace(amtRxG,'').trim();}
+          }
+        }
+      }
+      extra=extra.replace(/(?<!\d)-?\d{1,3}(?:[\s\u00a0.]\d{3})*,\d{2}/g,'').trim();
+      if(extra&&extra.length>2&&!/^\d{1,2}[\/\.\-]\d{1,2}/.test(extra)){
+        cur.label=(cur.label+' '+extra).substring(0,120);
+      }
+    }
+  }
+  flush();
+  return results.map(r=>({dateStr:r.dateStr,amount:r.amount,label:r.label.substring(0,80)}));
+}
+
 function parsePDFLine(line){
-  // Match French date: DD/MM/YYYY or DD/MM/YY or DD-MM-YYYY
   const dateRx=/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\b/;
-  // Match amounts: -1 234,56 or 1234.56 or -1 234.56
   const amtRx=/(-?\s?\d{1,3}(?:[\s\.]\d{3})*[,\.]\d{2})/g;
-  const dm=dateRx.exec(line);
-  if(!dm)return null;
+  const dm=dateRx.exec(line);if(!dm)return null;
   const yr=dm[3].length===2?'20'+dm[3]:dm[3];
-  const dateStr=`${yr}-${dm[2].padStart(2,'0')}-${dm[1].padStart(2,'0')}`;
-  // Parse all numeric amounts found on the line
+  const dateStr=yr+'-'+dm[2].padStart(2,'0')+'-'+dm[1].padStart(2,'0');
   const amounts=[...line.matchAll(amtRx)].map(m=>{
     const s=m[1].replace(/\s/g,'');
-    // Determine decimal separator: last , or . before 2 digits at end
-    const dotIdx=s.lastIndexOf('.');
-    const comIdx=s.lastIndexOf(',');
-    let clean;
-    if(comIdx>dotIdx){clean=s.replace(/\./g,'').replace(',','.');}
-    else{clean=s.replace(/,/g,'');}
-    return parseFloat(clean);
+    const ci=s.lastIndexOf(','),di=s.lastIndexOf('.');
+    return parseFloat(ci>di?s.replace(/\./g,'').replace(',','.'):s.replace(/,/g,''));
   }).filter(n=>!isNaN(n)&&Math.abs(n)>=0.01);
   if(!amounts.length)return null;
   const amount=amounts[amounts.length-1];
-  // Label: strip date + amounts, collapse spaces
   const label=line.replace(dateRx,'').replace(amtRx,'').replace(/\s+/g,' ').trim().substring(0,80)||'Import PDF';
-  return {dateStr,amount,label};
+  return{dateStr,amount,label};
 }
+
 async function startImportPDF(file){
   if(cv!=='import'){navTo('import');await new Promise(r=>setTimeout(r,120));}
   const statusEl=document.getElementById('importStatus');
   const msgEl=document.getElementById('importStatusMsg');
   const pbEl=document.getElementById('importProgressBar');
-  const setProgress=(w,msg)=>{
-    if(statusEl)statusEl.style.display='block';
-    if(pbEl)pbEl.style.width=w+'%';
-    if(msgEl)msgEl.textContent=msg;
-  };
-  setProgress(10,'Lecture du PDF...');
+  const sp=(w,msg)=>{if(statusEl)statusEl.style.display='block';if(pbEl)pbEl.style.width=w+'%';if(msgEl)msgEl.textContent=msg;};
+  sp(10,'Lecture du PDF...');
   try{
-    const lines=await readPDFFile(file);
-    if(!lines||!lines.length){toast('Aucune donnee dans ce PDF','err');if(statusEl)statusEl.style.display='none';return;}
-    setProgress(45,'Analyse des transactions...');
+    const pdfRows=await readPDFFile(file);
+    if(!pdfRows||!pdfRows.length){
+      sp(30,'PDF scanné détecté — lancement OCR...');
+      toast('PDF sans texte → OCR automatique...','warn');
+      try{
+        const pdfBuf=await file.arrayBuffer();
+        const pdfDoc=await pdfjsLib.getDocument({data:pdfBuf}).promise;
+        const ocrResults=[];
+        for(let pg=1;pg<=pdfDoc.numPages;pg++){
+          sp(30+Math.round(pg/pdfDoc.numPages*50),'OCR page '+pg+'/'+pdfDoc.numPages+'...');
+          const page=await pdfDoc.getPage(pg);
+          const vp=page.getViewport({scale:2.0});
+          const canvas=document.createElement('canvas');
+          canvas.width=vp.width;canvas.height=vp.height;
+          const ctx=canvas.getContext('2d');
+          await page.render({canvasContext:ctx,viewport:vp}).promise;
+          const blob=await new Promise(r=>canvas.toBlob(r,'image/png'));
+          if(typeof Tesseract!=='undefined'){
+            const res=await Tesseract.recognize(blob,'fra',{
+              logger:m=>{if(m.status==='recognizing text')sp(30+Math.round((pg-1+m.progress)/pdfDoc.numPages*50),'OCR page '+pg+': '+Math.round(m.progress*100)+'%');}
+            });
+            res.data.text.split('\n').forEach(line=>{
+              const p=parsePDFLine(line.trim());
+              if(p)ocrResults.push(p);
+            });
+          }
+        }
+        if(ocrResults.length){
+          sp(85,'Catégorisation...');
+          const rows=ocrResults.map(p=>{
+            const isDup=data.t.some(t=>t.d===p.dateStr&&Math.abs(t.a-Math.abs(p.amount))<0.01&&t.lb.substring(0,8)===p.label.substring(0,8));
+            return{date:p.dateStr,label:p.label,amount:p.amount,cat:ruleCat(p.label),isDup};
+          });
+          _importPreview=rows;
+          if(rows.length)detectRecurring(rows.map(r=>({date:r.date,label:r.label,amount:r.amount})));
+          sp(100,'');setTimeout(()=>{if(statusEl)statusEl.style.display='none';},500);
+          const previewEl=document.getElementById('importPreview');
+          if(previewEl)previewEl.innerHTML=buildPreviewTable();
+          toast(rows.length+' transactions extraites par OCR');
+          return;
+        }
+      }catch(ocrErr){console.error('OCR fallback error',ocrErr);}
+      if(statusEl)statusEl.style.display='none';
+      const previewEl=document.getElementById('importPreview');
+      if(previewEl)previewEl.innerHTML=`<div style="background:var(--card);border-radius:12px;padding:16px;margin-top:12px">
+        <p style="color:var(--gold);font-weight:600;margin-bottom:8px">⚠️ PDF sans texte extractible</p>
+        <p style="color:var(--muted);font-size:13px">Ce PDF semble être un <b>scan/image</b> et l'OCR n'a pas détecté de transactions. Essayez l'onglet <b>IMAGE</b> avec une capture d'écran nette de votre relevé.</p>
+      </div>`;
+      toast('Aucune transaction détectée','err');
+      return;
+    }
+    sp(40,'Détection du format bancaire...');
+    console.log('[PDF] '+pdfRows.length+' lignes extraites, colonnes:',JSON.stringify(_pdfDetectCols(pdfRows)));
+    console.log('[PDF] Premières lignes:',pdfRows.slice(0,15).map(r=>r.text));
+    let parsed=parseBankPDF(pdfRows);
+    if(!parsed.length){
+      sp(55,'Tentative mode ligne par ligne...');
+      const lines=pdfRows.map(r=>r.text);
+      lines.forEach(line=>{const p=parsePDFLine(line);if(p)parsed.push(p);});
+    }
+    sp(70,'Catégorisation...');
     const rows=[];
-    lines.forEach(line=>{
-      const parsed=parsePDFLine(line);
-      if(!parsed)return;
-      const{dateStr,amount,label}=parsed;
+    parsed.forEach(p=>{
+      const{dateStr,amount,label}=p;
       const isDup=data.t.some(t=>t.d===dateStr&&Math.abs(t.a-Math.abs(amount))<0.01&&t.lb.substring(0,8)===label.substring(0,8));
       rows.push({date:dateStr,label,amount,cat:ruleCat(label),isDup});
     });
-    setProgress(80,'Construction de l\'apercu...');
+    sp(85,'Construction de l\'aperçu...');
     _importPreview=rows;
     if(rows.length){detectRecurring(rows.map(r=>({date:r.date,label:r.label,amount:r.amount})));}
-    setProgress(100,'');
+    sp(100,'');
     setTimeout(()=>{if(statusEl)statusEl.style.display='none';},500);
     const previewEl=document.getElementById('importPreview');
-    if(previewEl)previewEl.innerHTML=buildPreviewTable();
-    if(!rows.length)toast('Aucune transaction detectee dans ce PDF','warn');
-    else toast(`${rows.length} lignes extraites du PDF`);
+    if(previewEl){
+      if(!rows.length){
+        const rawLines=pdfRows.map(r=>r.text).slice(0,50);
+        previewEl.innerHTML=`<div style="background:var(--card);border-radius:12px;padding:16px;margin-top:12px">
+          <p style="color:var(--gold);font-weight:600;margin-bottom:8px">⚠️ 0 transaction détectée — Texte brut extrait :</p>
+          <div style="max-height:300px;overflow:auto;background:#111;border-radius:8px;padding:10px;margin-top:8px">
+            ${rawLines.map((l,i)=>`<div style="font-family:monospace;font-size:10px;color:${_pdfSkip(l)?'#555':'#ccc'};padding:2px 0;border-bottom:1px solid #222">
+              <span style="color:#666;min-width:24px;display:inline-block">${i+1}</span> ${l.replace(/</g,'&lt;')}${_pdfSkip(l)?' <span style="color:#c44;font-size:9px">⊘ skip</span>':''}</div>`).join('')}
+          </div>
+          <p style="color:var(--muted);font-size:11px;margin-top:8px">Lignes grisées = ignorées (en-têtes/pieds). Si le format n'est pas reconnu, essayez l'import <b>Image (OCR)</b>.</p>
+        </div>`;
+      }else{
+        previewEl.innerHTML=buildPreviewTable();
+      }
+    }
+    if(!rows.length)toast('Aucune transaction détectée — voir diagnostic ci-dessous','warn');
+    else toast(rows.length+' transactions extraites du PDF');
   }catch(e){
     console.error('PDF parse error',e);
     toast('Erreur PDF : '+e.message,'err');
