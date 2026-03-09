@@ -475,14 +475,14 @@ const CATEGORY_RULES=[
   {cat:'Salaire',kw:['salaire','paye','paie','remuneration','vir employeur','virement employeur','traitement','solde ','prime ','indemnite','allocation','caf ','pole emploi','france travail','pension','retraite','revenu']},
   {cat:'Logement',kw:['loyer','bail','quittance','edf','engie','total energie','eau ','gaz ','fibre','sfr','orange','free ','bouygues','bytel','assurance ','mutuelle ','mma','axa','maif','macif','allianz','cardif','electricite','logt']},
   {cat:'Alimentation',kw:['carrefour','leclerc','lidl','aldi','intermarche','monoprix','franprix','casino ','auchan','picard ','biocoop','naturalia','supermarche','boulangerie','boucherie','primeur','superette','cora','geant','hyper u','spar','drive','fresh','marche ']},
-  {cat:'Restaurants',kw:['restaurant','brasserie','bistrot','cafe ','bar ','mcdo','mcdonald','burger king','kfc','subway ','quick ','pizza','domino','uber eat','deliveroo','just eat','doordash','sushi','kebab','tacos','crepe','snack']},
-  {cat:'Transport',kw:['sncf','ratp','navigo','velib','blablacar','ouigo','tgv','eurostar','taxi ','uber ','bolt ','heetch','kapten','location voiture','hertz','avis ','europcar','sixt','peage','essence','total ','shell','esso','station ','carburant','parking','vignette']},
-  {cat:'Santé',kw:['pharmacie','medecin','docteur','hopital','clinique','dentiste','opticien','kiné','kinesither','osteo','radiologue','labo','cpam','ameli','sante','optical center','afflelou','atol','krys']},
+  {cat:'Restaurants',kw:['restaurant','brasserie','bistrot','cafe ','bar ','mcdo','mcdonald','burger king','kfc','subway ','quick ','pizza','domino','uber eat','deliveroo','just eat','doordash','sushi','kebab','tacos','crepe','snack','chicken ','brunch','angelica','300 delice','poulet','master poulet']},
+  {cat:'Transport',kw:['sncf','ratp','navigo','velib','blablacar','ouigo','tgv','eurostar','taxi ','uber ','bolt ','heetch','kapten','location voiture','hertz','avis ','europcar','sixt','peage','essence','total ','totalenergies','shell','esso','station ','carburant','parking','vignette','imagine r']},
+  {cat:'Santé',kw:['pharmacie','phcie','medecin','docteur','hopital','clinique','dentiste','opticien','kiné','kinesither','osteo','radiologue','labo','cpam','ameli','sante','optical center','afflelou','atol','krys','boticinal','parapharm']},
   {cat:'Voyage',kw:['hotel','airbnb','booking.com','vol ','avion','billet avion','agence voyage','location vacances','resort','croisiere','sejour','trip','expedia','kayak','skyscanner']},
   {cat:'Cadeaux',kw:['cadeau','gift','anniversaire','noel','fete','mariage','naissance','bapteme','fleuriste','bijou']},
   {cat:'Imprévus',kw:['reparation','depannage','urgence','imprev','panne','plombier','serrurier','accident','amende','contravention','franchise']},
-  {cat:'Loisirs',kw:['netflix','spotify','deezer','disney','canal+','fnac ','cultura','steam','playstation','xbox','nintendo','cinema','theatre','concert','festival','musee','amazon prime','youtube premium','apple music','spotify','apple tv','tidal','max ']},
-  {cat:'Vêtements',kw:['h&m','zara','primark','uniqlo','mango ','sandro','celio','gap ','levis','nike ','adidas','decathlon','jules ','kiabi','la redoute','asos','zalando','shein','vinted','vetement','chaussure']},
+  {cat:'Loisirs',kw:['netflix','spotify','deezer','disney','canal+','fnac ','cultura','steam','playstation','xbox','nintendo','cinema','theatre','concert','festival','musee','amazon prime','youtube premium','apple music','spotify','apple tv','tidal','max ','claude.ai','meta pay','declicmedia']},
+  {cat:'Vêtements',kw:['h&m','zara','primark','uniqlo','mango ','sandro','celio','gap ','levis','nike ','adidas','decathlon','jules ','kiabi','la redoute','asos','zalando','shein','vinted','vetement','chaussure','marcjacobs','marc jacobs','histoire d\'or','jolie sarah']},
   {cat:'Épargne',kw:['livret','pel','cel','epargne','capitalisation','assurance vie','per ','pea ','scpi']},
   {cat:'Investissements',kw:['bourse','etf','obligation','crypto','bitcoin','binance','coinbase','trading','degiro','lynx','interactive broker']},
 ];
@@ -1694,12 +1694,23 @@ const PARSERS=[
   },
   {
     id:'revolut',name:'Revolut',
-    detect:h=>h.includes('completed')&&h.includes('description'),
+    detect:h=>h.includes('description')&&(h.includes('completed')||(h.includes('date de fin')&&h.includes('montant'))),
     parse(lines){return lines.map(r=>{
-      const c=csvSplit(r,window._csvSep);if(c.length<5)return null;
-      const date=csvDate(c[2]||c[0]);const label=c[4]||c[1];
-      const amount=csvAmount(c[5]||c[3]);
-      return(date&&label&&!isNaN(amount))?{date,label,amount}:null;
+      const c=csvSplit(r,window._csvSep);if(c.length<6)return null;
+      // Filter savings pocket product (Épargne / Savings)
+      const prod=(c[1]||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+      if(/epargne|savings/.test(prod))return null;
+      // Filter returned/failed transactions (RENVOYÉ / REVERTED)
+      const state=(c[8]||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+      if(/renvoye|reverted|failed/.test(state))return null;
+      // Filter internal pocket transfers
+      const desc=(c[4]||'').trim();
+      if(/^(sur la pocket|retrait depuis une pocket)/i.test(desc))return null;
+      // Prefer settlement date (Date de fin / Completed Date)
+      const date=csvDate(c[3])||csvDate(c[2])||csvDate(c[0]);
+      const label=desc||c[1]||'';
+      const amount=csvAmount(c[5]);
+      return(date&&label&&!isNaN(amount)&&Math.abs(amount)>=0.01)?{date,label,amount}:null;
     }).filter(Boolean);}
   },
   {
@@ -2013,7 +2024,8 @@ const _PDF_SKIP=[
   /^(monsieur|madame|m\.|mme)\s/i, /titulaire/i, /www\./i,
   /^\s*[-=_]{3,}\s*$/, /courrier|adresse|t[eé]l[eé]phone/i,
   /^(d[eé]bit|cr[eé]dit|montant|date|lib[eé]ll[eé]|op[eé]ration|nature|valeur)\s*$/i,
-  /^(caisse\s+d|bnp\s+par|soci[eé]t[eé]\s+g[eé]n|cr[eé]dit\s+(agri|mutu|lyon)|lcl|cic\b|banque\s+pop|la\s+banque\s+post)/i,
+  /^(caisse\s+d|bnp\s+par|soci[eé]t[eé]\s+g[eé]n|cr[eé]dit\s+(agri|mutu|lyon)|lcl\b(?!\s+(a|à)\s+la)|cic\b|banque\s+pop|la\s+banque\s+post)/i,
+  /^totaux\b/i, /ecritures\s+de\s+la/i,
   /votre\s+conseiller/i, /service\s+client/i, /agence\s+de/i
 ];
 function _pdfSkip(t){return _PDF_SKIP.some(rx=>rx.test(t));}
