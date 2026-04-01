@@ -931,6 +931,24 @@ function rDash(){
   const debtKpi=ds.totalMensualite>0&&kp.remboursements?`<div class="kpi"><div class="kpi-l">Remboursements</div><div class="kpi-v p">−${fmtEur(ds.totalMensualite)}<span class="mono xxs" style="color:var(--dim);font-weight:400">/mois</span></div></div><div class="kpi"><div class="kpi-l">Endettement</div><div class="kpi-v" style="color:${ds.tauxEndettement>33?'var(--red)':ds.tauxEndettement>25?'#ffaa44':'var(--green)'}">${ds.tauxEndettement}%</div></div>`:'';
   // Cat bars + budget alerts
   const budgetAlerts=[];
+  // Weekly budget tracking
+  const wb=data.weeklyBudget||0;
+  let weeklyHtml='';
+  if(wb>0){
+    const today=new Date(sy,sm,new Date().getDate());
+    const dow=today.getDay()||7;/* 1=lun..7=dim */
+    const wStart=new Date(today);wStart.setDate(today.getDate()-(dow-1));
+    const wEnd=new Date(wStart);wEnd.setDate(wStart.getDate()+6);
+    const ws=wStart.toISOString().slice(0,10),we=wEnd.toISOString().slice(0,10);
+    const weekExp=txs.filter(t=>t.tp==='e'&&t.d>=ws&&t.d<=we).reduce((s,t)=>s+t.a,0);
+    const wpct=Math.min(Math.round(weekExp/wb*100),100);
+    const wcolor=weekExp>=wb?'var(--red)':weekExp>=wb*0.8?'#ffaa44':'var(--green)';
+    const wremain=Math.max(wb-weekExp,0);
+    const wDayLabel=`Sem. ${wStart.getDate()}/${wStart.getMonth()+1} — ${wEnd.getDate()}/${wEnd.getMonth()+1}`;
+    weeklyHtml=`<div class="card"><div class="card-t">Budget hebdomadaire</div><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span class="mono xs" style="color:var(--dim)">${wDayLabel}</span><span class="mono xs" style="color:${wcolor}">${fmtEur(weekExp)} / ${fmtEur(wb)}</span></div><div class="bar-bg thin"><div class="bar-fill thin" style="width:${wpct}%;background:${wcolor}"></div></div><div style="margin-top:6px;text-align:right"><span class="mono xxs" style="color:${wcolor}">${weekExp>=wb?'Plafond atteint !':'Reste '+fmtEur(wremain)}</span></div></div>`;
+    if(weekExp>=wb)budgetAlerts.push({name:'Budget semaine',icon:'📅',total:weekExp,cap:wb,pct:Math.round(weekExp/wb*100)});
+    else if(weekExp>=wb*0.8)budgetAlerts.push({name:'Budget semaine',icon:'📅',total:weekExp,cap:wb,pct:Math.round(weekExp/wb*100),warn:true});
+  }
   const catBars=byCat.length?byCat.map(c=>{const b=data.b[c.name];const p=b?Math.min(c.total/b*100,100):null;const fc=p&&p>90?'var(--red)':c.color;
     if(b&&c.total>=b)budgetAlerts.push({name:c.name,icon:c.icon,total:c.total,cap:b,pct:Math.round(c.total/b*100)});
     else if(b&&c.total>=b*0.8)budgetAlerts.push({name:c.name,icon:c.icon,total:c.total,cap:b,pct:Math.round(c.total/b*100),warn:true});
@@ -971,7 +989,7 @@ function rDash(){
   kpiHtml+='</div>';
   // Edit KPIs button
   const editKpiBtn=`<div style="text-align:right;margin-bottom:8px"><button onclick="openKpiEditor()" style="background:none;border:1px solid var(--border);color:var(--dim);font-family:var(--mono);font-size:9px;letter-spacing:1px;padding:5px 10px;cursor:pointer;border-radius:6px">⚙ Éditer KPIs</button></div>`;
-  return `${alerts}${budgetAlertHtml}${editKpiBtn}${kpiHtml}${ravHtml}${rule}${goalsP}${kp.categories?`<div class="card"><div class="card-t">Dépenses par catégorie</div>${catBars}</div>`:''}${kp.categories?_renderTrends3m():''}${kp.chart6m?`<div class="card"><div class="card-t">6 mois <span style="color:var(--green);font-size:8px">■</span> revenus <span style="color:var(--pink);font-size:8px">■</span> dépenses</div><canvas id="balanceChart" style="width:100%;max-height:180px"></canvas></div>`:''}${projHtml}${forecast}${kp.recentes?`<div class="card"><div class="card-t">Récentes</div>${txs.length===0?'<div class="empty">Aucune transaction ce mois</div>':recent}${more}</div>`:''}`;
+  return `${alerts}${budgetAlertHtml}${weeklyHtml}${editKpiBtn}${kpiHtml}${ravHtml}${rule}${goalsP}${kp.categories?`<div class="card"><div class="card-t">Dépenses par catégorie</div>${catBars}</div>`:''}${kp.categories?_renderTrends3m():''}${kp.chart6m?`<div class="card"><div class="card-t">6 mois <span style="color:var(--green);font-size:8px">■</span> revenus <span style="color:var(--pink);font-size:8px">■</span> dépenses</div><canvas id="balanceChart" style="width:100%;max-height:180px"></canvas></div>`:''}${projHtml}${forecast}${kp.recentes?`<div class="card"><div class="card-t">Récentes</div>${txs.length===0?'<div class="empty">Aucune transaction ce mois</div>':recent}${more}</div>`:''}`;
 }
 function renderBalanceChart(m6){
   if(!m6||typeof Chart==='undefined')return;
@@ -1493,7 +1511,13 @@ function rSettings(){
     <button class="submit" style="margin-top:14px" onclick="saveKpiToggles()">Enregistrer les KPIs</button>
   </div>
   <div class="card">
-    <div class="card-t">Plafonds mensuels</div>
+    <div class="card-t">Budget hebdomadaire</div>
+    <p class="mono xxs" style="color:var(--muted);margin-bottom:10px;line-height:1.5">Plafond de dépenses par semaine. Laissez vide pour désactiver.</p>
+    <label class="fl">Plafond par semaine (${curSymbol()})<input id="weeklyBudgetInput" class="fi" type="text" inputmode="decimal" placeholder="Ex : 100" value="${data.weeklyBudget||''}"></label>
+    <button class="submit" style="margin-top:12px" onclick="saveWeeklyBudget()">Sauvegarder</button>
+  </div>
+  <div class="card">
+    <div class="card-t">Plafonds mensuels par catégorie</div>
     <div class="fg">${rows}</div>
     <button class="submit" style="margin-top:16px" onclick="saveBudgets()">Sauvegarder</button>
   </div>`;
@@ -1520,6 +1544,11 @@ function openKpiEditor(){
     toast('KPIs mis à jour');
     render();
   });
+}
+function saveWeeklyBudget(){
+  const v=parseInput(document.getElementById('weeklyBudgetInput')?.value);
+  if(!isNaN(v)&&v>0)data.weeklyBudget=v;else delete data.weeklyBudget;
+  save();toast('Budget hebdomadaire sauvegardé');
 }
 function saveBudgets(){
   document.querySelectorAll('.bi').forEach(inp=>{
