@@ -940,7 +940,7 @@ function rDash(){
     const wStart=new Date(today);wStart.setDate(today.getDate()-(dow-1));
     const wEnd=new Date(wStart);wEnd.setDate(wStart.getDate()+6);
     const ws=wStart.toISOString().slice(0,10),we=wEnd.toISOString().slice(0,10);
-    const weekExp=txs.filter(t=>t.tp==='e'&&t.d>=ws&&t.d<=we).reduce((s,t)=>s+t.a,0);
+    const weekExp=txs.filter(t=>t.tp==='e'&&!t._isSub&&t.d>=ws&&t.d<=we).reduce((s,t)=>s+t.a,0);
     const wpct=Math.min(Math.round(weekExp/wb*100),100);
     const wcolor=weekExp>=wb?'var(--red)':weekExp>=wb*0.8?'#ffaa44':'var(--green)';
     const wremain=Math.max(wb-weekExp,0);
