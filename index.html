@@ -1030,7 +1030,27 @@ function rDash(){
   kpiHtml+='</div>';
   // Edit KPIs button
   const editKpiBtn=`<div style="text-align:right;margin-bottom:8px"><button onclick="openKpiEditor()" style="background:none;border:1px solid var(--border);color:var(--dim);font-family:var(--mono);font-size:9px;letter-spacing:1px;padding:5px 10px;cursor:pointer;border-radius:6px">⚙ Éditer KPIs</button></div>`;
-  return `${alerts}${budgetAlertHtml}${weeklyHtml}${dailyHtml}${editKpiBtn}${kpiHtml}${ravHtml}${rule}${goalsP}${kp.categories?`<div class="card"><div class="card-t">Dépenses par catégorie</div>${catBars}</div>`:''}${kp.categories?_renderTrends3m():''}${kp.chart6m?`<div class="card"><div class="card-t">6 mois <span style="color:var(--green);font-size:8px">■</span> revenus <span style="color:var(--pink);font-size:8px">■</span> dépenses</div><canvas id="balanceChart" style="width:100%;max-height:180px"></canvas></div>`:''}${projHtml}${forecast}${kp.recentes?`<div class="card"><div class="card-t">Récentes</div>${txs.length===0?'<div class="empty">Aucune transaction ce mois</div>':recent}${more}</div>`:''}`;
+  // Dashboard sections — orderable
+  const _dashSections={
+    alerts:{html:alerts+budgetAlertHtml,always:true},
+    weekly:{html:weeklyHtml},
+    daily:{html:dailyHtml},
+    kpis:{html:editKpiBtn+kpiHtml},
+    rav:{html:ravHtml},
+    rule:{html:rule},
+    goals:{html:goalsP},
+    categories:{html:kp.categories?`<div class="card"><div class="card-t">Dépenses par catégorie</div>${catBars}</div>`:''},
+    trends:{html:kp.categories?_renderTrends3m():''},
+    chart6m:{html:kp.chart6m?`<div class="card"><div class="card-t">6 mois <span style="color:var(--green);font-size:8px">■</span> revenus <span style="color:var(--pink);font-size:8px">■</span> dépenses</div><canvas id="balanceChart" style="width:100%;max-height:180px"></canvas></div>`:''},
+    projection:{html:projHtml},
+    forecast:{html:forecast},
+    recentes:{html:kp.recentes?`<div class="card"><div class="card-t">Récentes</div>${txs.length===0?'<div class="empty">Aucune transaction ce mois</div>':recent}${more}</div>`:''},
+  };
+  const _defaultOrder=['alerts','weekly','daily','kpis','rav','rule','goals','categories','trends','chart6m','projection','forecast','recentes'];
+  const _savedOrder=JSON.parse(localStorage.getItem('dashOrder')||'null')||_defaultOrder;
+  // Merge: keep saved order, add any new sections at end, remove deleted
+  const _order=_savedOrder.filter(k=>k in _dashSections).concat(_defaultOrder.filter(k=>!_savedOrder.includes(k)&&k in _dashSections));
+  return _order.map(k=>_dashSections[k]?.html||'').join('');
 }
 function renderBalanceChart(m6){
   if(!m6||typeof Chart==='undefined')return;
@@ -1580,17 +1600,35 @@ function saveKpiToggles(){
   toast('KPIs mis à jour');
   if(cv==='dashboard') render();
 }
+const DASH_SECTION_LABELS={weekly:'📅 Budget hebdo',daily:'📊 Dépenses 7j',kpis:'📈 Indicateurs',rav:'💰 Reste à vivre',rule:'📊 Règle 50/30/20',goals:'🎯 Objectifs',categories:'📁 Catégories',trends:'📉 Tendances 3 mois',chart6m:'📈 Graphique 6 mois',projection:'📉 Projection 12 mois',forecast:'📅 Prévisionnel 30j',recentes:'🕐 Récentes'};
+function _getDashOrder(){
+  const def=['alerts','weekly','daily','kpis','rav','rule','goals','categories','trends','chart6m','projection','forecast','recentes'];
+  return JSON.parse(localStorage.getItem('dashOrder')||'null')||def;
+}
+function _renderOrderList(){
+  const order=_getDashOrder().filter(k=>k!=='alerts');
+  return order.map((k,i)=>`<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04)" data-sec="${k}"><span class="mono xs" style="flex:1;color:var(--text)">${DASH_SECTION_LABELS[k]||k}</span><button onclick="_moveDashSection('${k}',-1)" style="background:none;border:1px solid var(--border);color:var(--dim);width:30px;height:30px;border-radius:6px;cursor:pointer;font-size:14px"${i===0?' disabled':''}>${i===0?'':'↑'}</button><button onclick="_moveDashSection('${k}',1)" style="background:none;border:1px solid var(--border);color:var(--dim);width:30px;height:30px;border-radius:6px;cursor:pointer;font-size:14px"${i===order.length-1?' disabled':''}>${i===order.length-1?'':'↓'}</button></div>`).join('');
+}
+function _moveDashSection(key,dir){
+  const order=_getDashOrder();
+  const idx=order.indexOf(key);if(idx<0)return;
+  const newIdx=idx+dir;if(newIdx<0||newIdx>=order.length)return;
+  [order[idx],order[newIdx]]=[order[newIdx],order[idx]];
+  localStorage.setItem('dashOrder',JSON.stringify(order));
+  const container=document.getElementById('dashOrderList');
+  if(container)container.innerHTML=_renderOrderList();
+}
 function openKpiEditor(){
   const kp=getKpiPrefs();
   const KPI_LABELS={revenus:'↗ Revenus',depenses:'↘ Dépenses',solde:'◎ Solde du mois',patrimoine:'◆ Patrimoine net',resteAVivre:'💰 Reste à vivre',remboursements:'📋 Remboursements',rule5030:'📊 Règle 50/30/20',categories:'📁 Catégories',chart6m:'📈 Graphique 6 mois',projection:'📉 Projection 12 mois',forecast:'📅 Prévisionnel 30j',objectifs:'🎯 Objectifs',recentes:'🕐 Récentes'};
   const toggles=Object.entries(KPI_LABELS).map(([k,label])=>`<label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04);cursor:pointer"><input type="checkbox" class="kpi-chk-sheet" data-kpi="${k}" ${kp[k]?'checked':''} style="width:18px;height:18px;accent-color:var(--gold);cursor:pointer"><span class="mono xs" style="color:var(--text)">${label}</span></label>`).join('');
-  const body=`<p class="mono xxs" style="color:var(--muted);margin-bottom:10px;line-height:1.5">Choisissez les indicateurs visibles sur le tableau de bord.</p>${toggles}`;
-  openSheet('Éditer les KPIs', body, ()=>{
+  const body=`<p class="mono xxs" style="color:var(--muted);margin-bottom:10px;line-height:1.5">Indicateurs visibles</p>${toggles}<div style="margin-top:16px;padding-top:12px;border-top:2px solid var(--border)"><p class="mono xxs" style="color:var(--muted);margin-bottom:10px;line-height:1.5;letter-spacing:1px">ORDRE DES SECTIONS</p><div id="dashOrderList">${_renderOrderList()}</div></div>`;
+  openSheet('Éditer le dashboard', body, ()=>{
     const kp2=getKpiPrefs();
     document.querySelectorAll('.kpi-chk-sheet').forEach(chk=>{kp2[chk.dataset.kpi]=chk.checked;});
     saveKpiPrefs(kp2);
     closeSheet();
-    toast('KPIs mis à jour');
+    toast('Dashboard mis à jour');
     render();
   });
 }
