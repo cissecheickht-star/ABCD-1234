@@ -983,7 +983,8 @@ function rDash(){
   const _today=new Date();
   for(let i=6;i>=0;i--){const d=new Date(_today);d.setDate(_today.getDate()-i);_dailyDays.push(d.toISOString().slice(0,10));}
   const _dailyData=_dailyDays.map(day=>{
-    const amt=data.t.filter(t=>t.tp==='e'&&!t._isSub&&t.d===day).reduce((s,t)=>s+t.a,0);
+    const dCats=data.dailyCats;
+    const amt=data.t.filter(t=>t.tp==='e'&&!t._isSub&&t.d===day&&(!dCats||!dCats.length||dCats.includes(t.c))).reduce((s,t)=>s+t.a,0);
     return{day,amt};
   });
   const _dailyMax=Math.max(..._dailyData.map(d=>d.amt),1);
@@ -1018,14 +1019,12 @@ function rDash(){
   const incDelta=prevInc>0?Math.round((inc/prevInc-1)*100):null;
   const expDelta=prevExp>0?Math.round((exp/prevExp-1)*100):null;
   const deltaTag=(d,inv)=>{if(d===null)return '';const good=inv?d<=0:d>=0;const col=good?'var(--green)':'var(--red)';return ` <span class="mono xxs" style="color:${col}">${d>=0?'+':''}${d}%</span>`;};
-  // Savings rate
-  const savingsRate=inc>0?Math.round((inc-exp)/inc*100):0;
   // Build KPI grid with visibility
   let kpiHtml='<div class="kpis">';
   if(kp.revenus) kpiHtml+=`<div class="kpi"><div class="kpi-l">Revenus${deltaTag(incDelta,false)}</div><div class="kpi-v"><span class="kpi-s g">↗</span>${fmtEur(inc)}</div></div>`;
   if(kp.depenses) kpiHtml+=`<div class="kpi"><div class="kpi-l">Dépenses${deltaTag(expDelta,true)}</div><div class="kpi-v"><span class="kpi-s p">↘</span>${fmtEur(exp)}</div></div>`;
   if(kp.solde) kpiHtml+=`<div class="kpi"><div class="kpi-l">Solde</div><div class="kpi-v" style="color:${bal>=0?'var(--gold)':'var(--red)'}">${fmtEur(bal)}</div></div>`;
-  if(inc>0) kpiHtml+=`<div class="kpi"><div class="kpi-l">Taux d'épargne</div><div class="kpi-v" style="color:${savingsRate>=20?'var(--green)':savingsRate>=0?'#ffaa44':'var(--red)'}">${savingsRate}%</div></div>`;
+
   kpiHtml+=nwKpi;
   kpiHtml+=debtKpi;
   kpiHtml+='</div>';
@@ -1561,6 +1560,12 @@ function rSettings(){
     <button class="submit" style="margin-top:12px" onclick="saveWeeklyBudget()">Sauvegarder</button>
   </div>
   <div class="card">
+    <div class="card-t">Synthèse quotidienne</div>
+    <p class="mono xxs" style="color:var(--muted);margin-bottom:10px;line-height:1.5">Catégories affichées dans les dépenses des 7 derniers jours.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px">${CATS.filter(c=>c.type!=='income'&&c.type!=='savings').map(c=>{const chk=(data.dailyCats||[]).includes(c.name)||!(data.dailyCats);return`<label style="display:flex;align-items:center;gap:6px;padding:5px 0;cursor:pointer"><input type="checkbox" class="dc-cat-chk" data-cat="${c.name}" ${chk?'checked':''} style="width:16px;height:16px;accent-color:var(--gold);cursor:pointer"><span class="mono xxs" style="color:var(--text)">${c.icon} ${c.name}</span></label>`;}).join('')}</div>
+    <button class="submit" style="margin-top:12px" onclick="saveDailyCats()">Sauvegarder</button>
+  </div>
+  <div class="card">
     <div class="card-t">Plafonds mensuels par catégorie</div>
     <div class="fg">${rows}</div>
     <button class="submit" style="margin-top:16px" onclick="saveBudgets()">Sauvegarder</button>
@@ -1588,6 +1593,11 @@ function openKpiEditor(){
     toast('KPIs mis à jour');
     render();
   });
+}
+function saveDailyCats(){
+  const cats=[];document.querySelectorAll('.dc-cat-chk').forEach(chk=>{if(chk.checked)cats.push(chk.dataset.cat);});
+  data.dailyCats=cats;
+  save();toast('Catégories quotidiennes sauvegardées');
 }
 function saveWeeklyBudget(){
   const v=parseInput(document.getElementById('weeklyBudgetInput')?.value);
