@@ -132,12 +132,20 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 .mlbl{font-family:var(--mono);font-size:11px;color:var(--dim);min-width:68px;text-align:center;font-weight:500}
 .main{flex:1;padding:8px 14px calc(76px + var(--safe-bottom));overflow-y:auto;-webkit-overflow-scrolling:touch}
 /* Bottom Nav */
-.bnav{position:fixed;bottom:0;left:0;right:0;background:rgba(10,12,15,.96);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border-top:1px solid var(--border);display:flex;padding-bottom:var(--safe-bottom);z-index:100;overflow-x:auto;scrollbar-width:none}
-.bnav::-webkit-scrollbar{display:none}
-.bnav-btn{display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 0 8px;border:none;background:none;color:var(--muted);cursor:pointer;flex:1;min-width:60px;transition:color .18s}
+.bnav{position:fixed;bottom:0;left:0;right:0;background:rgba(10,12,15,.96);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border-top:1px solid var(--border);display:flex;align-items:flex-end;justify-content:space-around;padding-bottom:var(--safe-bottom);z-index:100}
+.bnav-btn{display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 0 8px;border:none;background:none;color:var(--muted);cursor:pointer;flex:1;min-width:0;transition:color .18s;-webkit-tap-highlight-color:transparent}
 .bnav-btn.on{color:var(--gold)}
-.bnav-ic{font-size:18px;line-height:1}
+.bnav-ic{font-size:20px;line-height:1}
 .bnav-lb{font-family:var(--font);font-size:9px;font-weight:500;letter-spacing:.3px;white-space:nowrap}
+.bnav-fab{position:relative;top:-12px;width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,var(--gold),var(--pink));border:none;color:#fff;font-size:26px;line-height:52px;text-align:center;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.35);-webkit-tap-highlight-color:transparent;transition:transform .15s}
+.bnav-fab:active{transform:scale(.92)}
+.bnav-fab-wrap{display:flex;flex-direction:column;align-items:center;flex:1;min-width:0}
+.bnav-fab-lb{font-family:var(--font);font-size:9px;font-weight:500;letter-spacing:.3px;color:var(--gold);margin-top:2px}
+.nav-more-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:8px 0}
+.nav-more-item{display:flex;flex-direction:column;align-items:center;gap:6px;padding:16px 8px;border-radius:12px;border:1px solid var(--border);background:none;color:var(--text);cursor:pointer;-webkit-tap-highlight-color:transparent;transition:background .15s}
+.nav-more-item:active{background:rgba(255,255,255,.05)}
+.nav-more-item .nmi-ic{font-size:22px}
+.nav-more-item .nmi-lb{font-family:var(--font);font-size:11px;font-weight:500;letter-spacing:.3px}
 /* Cards */
 .card{background:linear-gradient(145deg,rgba(22,25,31,.95),rgba(14,16,20,.95));border:1px solid rgba(255,255,255,.07);border-radius:var(--R);padding:16px;margin-bottom:12px;box-shadow:0 4px 24px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.04)}
 .card-t{font-family:var(--mono);font-size:9px;letter-spacing:2.5px;color:var(--muted);text-transform:uppercase;margin-bottom:14px;font-weight:500}
@@ -342,15 +350,10 @@ button,a,[onclick]{touch-action:manipulation}
   <div class="main" id="main"></div>
   <nav class="bnav" id="bnav">
     <button class="bnav-btn on" data-v="dashboard" onclick="nav(this)"><span class="bnav-ic">⌂</span><span class="bnav-lb">Bord</span></button>
-    <button class="bnav-btn" data-v="add" onclick="nav(this)"><span class="bnav-ic">＋</span><span class="bnav-lb">Ajout</span></button>
-    <button class="bnav-btn" data-v="import" onclick="nav(this)" id="tabImport"><span class="bnav-ic">⇪</span><span class="bnav-lb" id="tabImportLbl">Import</span></button>
-    <button class="bnav-btn" data-v="subs" onclick="nav(this)" id="tabSubs"><span class="bnav-ic">↺</span><span class="bnav-lb" id="tabSubsLbl">Abos</span></button>
-    <button class="bnav-btn" data-v="goals" onclick="nav(this)"><span class="bnav-ic">◎</span><span class="bnav-lb">Objectifs</span></button>
-    <button class="bnav-btn" data-v="patrimoine" onclick="nav(this)"><span class="bnav-ic">▲</span><span class="bnav-lb">Patrimoine</span></button>
-    <button class="bnav-btn" data-v="calendar" onclick="nav(this)"><span class="bnav-ic">▦</span><span class="bnav-lb">Calendrier</span></button>
     <button class="bnav-btn" data-v="history" onclick="nav(this)"><span class="bnav-ic">≡</span><span class="bnav-lb">Historique</span></button>
-    <button class="bnav-btn" data-v="settings" onclick="nav(this)"><span class="bnav-ic">⚙</span><span class="bnav-lb">Budgets</span></button>
-    <button class="bnav-btn" data-v="profile" onclick="nav(this)"><span class="bnav-ic">●</span><span class="bnav-lb">Profil</span></button>
+    <div class="bnav-fab-wrap"><button class="bnav-fab" onclick="navTo('add')">＋</button><span class="bnav-fab-lb">Ajout</span></div>
+    <button class="bnav-btn" data-v="patrimoine" onclick="nav(this)"><span class="bnav-ic">▲</span><span class="bnav-lb">Patrimoine</span></button>
+    <button class="bnav-btn" data-v="more" onclick="openNavMore()"><span class="bnav-ic">⋯</span><span class="bnav-lb">Plus</span></button>
   </nav>
 </div>
 <div class="sheet" id="sheet"><div class="sheet-bg" onclick="closeSheet()"></div><div class="sheet-box" id="sheetBox"><div class="sheet-handle"></div><div class="sheet-title" id="sheetTitle"></div><div class="sheet-body" id="sheetBody"></div><div style="padding:12px 20px 20px;display:flex;gap:10px"><button onclick="closeSheet()" style="flex:1;background:none;border:1px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:11px;letter-spacing:1px;padding:12px;cursor:pointer;border-radius:10px;text-transform:uppercase">Annuler</button><button onclick="sheetSave()" style="flex:2;background:var(--gold);border:none;color:var(--bg);font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:1px;padding:12px;cursor:pointer;border-radius:10px;text-transform:uppercase">Sauvegarder →</button></div></div></div>
@@ -726,7 +729,26 @@ function updateHeader(){document.getElementById('mLabel').textContent=MSH[sm]+' 
   },{passive:true});
 })();
 function nav(btn){document.querySelectorAll('.bnav-btn').forEach(b=>b.classList.remove('on'));btn.classList.add('on');cv=btn.dataset.v;render();}
-function navTo(v){const btn=document.querySelector(`.bnav-btn[data-v="${v}"]`);if(btn)nav(btn);}
+function navTo(v){
+  const btn=document.querySelector(`.bnav-btn[data-v="${v}"]`);
+  if(btn){nav(btn);return;}
+  /* Hidden tab — update cv directly, clear active states */
+  document.querySelectorAll('.bnav-btn').forEach(b=>b.classList.remove('on'));
+  cv=v;render();closeSheet();
+}
+function openNavMore(){
+  const items=[
+    {v:'add',ic:'＋',lb:'Ajout'},
+    {v:'import',ic:'⇪',lb:'Import'},
+    {v:'subs',ic:'↺',lb:'Abonnements'},
+    {v:'goals',ic:'◎',lb:'Objectifs'},
+    {v:'calendar',ic:'▦',lb:'Calendrier'},
+    {v:'settings',ic:'⚙',lb:'Budgets'},
+    {v:'profile',ic:'●',lb:'Profil'},
+  ];
+  const grid=items.map(i=>`<button class="nav-more-item" onclick="navTo('${i.v}')"><span class="nmi-ic">${i.ic}</span><span class="nmi-lb">${i.lb}</span></button>`).join('');
+  openSheet('Navigation',`<div class="nav-more-grid">${grid}</div>`);
+}
 function mtx(){return data.t.filter(t=>{const d=new Date(t.d);return d.getMonth()===sm&&d.getFullYear()===sy;});}
 function mSubsTx(){
   const result=[];
@@ -940,12 +962,14 @@ function rDash(){
     const wStart=new Date(today);wStart.setDate(today.getDate()-(dow-1));
     const wEnd=new Date(wStart);wEnd.setDate(wStart.getDate()+6);
     const ws=wStart.toISOString().slice(0,10),we=wEnd.toISOString().slice(0,10);
-    const weekExp=txs.filter(t=>t.tp==='e'&&!t._isSub&&t.d>=ws&&t.d<=we).reduce((s,t)=>s+t.a,0);
+    const wbCats=data.weeklyBudgetCats;
+    const weekExp=txs.filter(t=>t.tp==='e'&&!t._isSub&&t.d>=ws&&t.d<=we&&(!wbCats||!wbCats.length||wbCats.includes(t.c))).reduce((s,t)=>s+t.a,0);
     const wpct=Math.min(Math.round(weekExp/wb*100),100);
     const wcolor=weekExp>=wb?'var(--red)':weekExp>=wb*0.8?'#ffaa44':'var(--green)';
     const wremain=Math.max(wb-weekExp,0);
     const wDayLabel=`Sem. ${wStart.getDate()}/${wStart.getMonth()+1} — ${wEnd.getDate()}/${wEnd.getMonth()+1}`;
-    weeklyHtml=`<div class="card"><div class="card-t">Budget hebdomadaire</div><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span class="mono xs" style="color:var(--dim)">${wDayLabel}</span><span class="mono xs" style="color:${wcolor}">${fmtEur(weekExp)} / ${fmtEur(wb)}</span></div><div class="bar-bg thin"><div class="bar-fill thin" style="width:${wpct}%;background:${wcolor}"></div></div><div style="margin-top:6px;text-align:right"><span class="mono xxs" style="color:${wcolor}">${weekExp>=wb?'Plafond atteint !':'Reste '+fmtEur(wremain)}</span></div></div>`;
+    const wbCatLabel=wbCats&&wbCats.length?wbCats.map(c=>{const cat=CATS.find(x=>x.name===c);return cat?cat.icon:'';}).join(' '):'Toutes';
+    weeklyHtml=`<div class="card"><div class="card-t">Budget hebdomadaire</div><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px"><span class="mono xs" style="color:var(--dim)">${wDayLabel}</span><span class="mono xs" style="color:${wcolor}">${fmtEur(weekExp)} / ${fmtEur(wb)}</span></div><div class="bar-bg thin"><div class="bar-fill thin" style="width:${wpct}%;background:${wcolor}"></div></div><div style="display:flex;justify-content:space-between;margin-top:6px"><span class="mono xxs" style="color:var(--dim)">${wbCatLabel}</span><span class="mono xxs" style="color:${wcolor}">${weekExp>=wb?'Plafond atteint !':'Reste '+fmtEur(wremain)}</span></div></div>`;
     if(weekExp>=wb)budgetAlerts.push({name:'Budget semaine',icon:'📅',total:weekExp,cap:wb,pct:Math.round(weekExp/wb*100)});
     else if(weekExp>=wb*0.8)budgetAlerts.push({name:'Budget semaine',icon:'📅',total:weekExp,cap:wb,pct:Math.round(weekExp/wb*100),warn:true});
   }
@@ -954,6 +978,24 @@ function rDash(){
     else if(b&&c.total>=b*0.8)budgetAlerts.push({name:c.name,icon:c.icon,total:c.total,cap:b,pct:Math.round(c.total/b*100),warn:true});
     return`<div style="margin-bottom:9px"><div class="row-between" style="margin-bottom:3px"><span class="mono xs" style="color:${c.color}">${c.icon} ${c.name}</span><span class="mono xs" style="color:#555">${fmtEur(c.total)}${b?' / '+fmtEur(b):''}</span></div>${p!==null?`<div class="bar-bg thin"><div class="bar-fill thin" style="width:${p}%;background:${fc}"></div></div>`:''}</div>`;}).join(''):'<div class="empty">Aucune dépense ce mois</div>';
   const budgetAlertHtml=budgetAlerts.length?`<div class="alert ${budgetAlerts.some(a=>!a.warn)?'urg':'soon'}"><div class="alert-t" style="color:${budgetAlerts.some(a=>!a.warn)?'#ff7070':'#ffaa44'}">${budgetAlerts.some(a=>!a.warn)?'⚠ Plafonds dépassés':'◎ Plafonds bientôt atteints'}</div>${budgetAlerts.map(a=>`<div class="alert-row"><span style="display:flex;align-items:center;gap:7px;font-size:12px;color:#D4CCC0">${a.icon} ${a.name} <span class="mono xs" style="color:${a.warn?'#ffaa44':'var(--red)'}">${fmtEur(a.total)} / ${fmtEur(a.cap)}</span></span><span class="badge ${a.warn?'soon':'urg'}">${a.pct}%</span></div>`).join('')}</div>`:'';
+  // Daily expense summary — last 7 days
+  const _dailyDays=[];
+  const _today=new Date();
+  for(let i=6;i>=0;i--){const d=new Date(_today);d.setDate(_today.getDate()-i);_dailyDays.push(d.toISOString().slice(0,10));}
+  const _dailyData=_dailyDays.map(day=>{
+    const amt=data.t.filter(t=>t.tp==='e'&&!t._isSub&&t.d===day).reduce((s,t)=>s+t.a,0);
+    return{day,amt};
+  });
+  const _dailyMax=Math.max(..._dailyData.map(d=>d.amt),1);
+  const _dailyAvg=_dailyData.reduce((s,d)=>s+d.amt,0)/7;
+  const _dayNames=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
+  const dailyHtml=`<div class="card"><div class="card-t">Dépenses · 7 derniers jours</div>${_dailyData.map(d=>{
+    const dt=new Date(d.day+'T12:00:00');const dn=_dayNames[dt.getDay()];const dd=dt.getDate();
+    const pct=_dailyMax>0?Math.round(d.amt/_dailyMax*100):0;
+    const isToday=d.day===_dailyDays[6];
+    const col=d.amt>_dailyAvg*1.5?'var(--red)':d.amt>0?'var(--pink)':'var(--border)';
+    return`<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px"><span class="mono xxs" style="color:${isToday?'var(--gold)':'var(--dim)'};width:42px;flex-shrink:0">${dn} ${dd}</span><div style="flex:1;height:14px;background:var(--border);border-radius:4px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${col};border-radius:4px;transition:width .3s"></div></div><span class="mono xxs" style="color:${d.amt>0?'var(--text)':'var(--dim)'};width:55px;text-align:right;flex-shrink:0">${d.amt>0?fmtEur(d.amt):'—'}</span></div>`;
+  }).join('')}<div style="display:flex;justify-content:space-between;margin-top:8px;padding-top:6px;border-top:1px solid var(--border)"><span class="mono xxs" style="color:var(--dim)">Moyenne/jour</span><span class="mono xxs" style="color:var(--pink)">${fmtEur(_dailyAvg)}</span></div></div>`;
   // Forecast — 30 jours
   const fcItems=(data.s||[]).filter(s=>s.active!==false).filter(s=>{const d=daysUntil(s.next);return d>=0&&d<=30;}).sort((a,b)=>a.next.localeCompare(b.next));
   const forecast=fcItems.length&&kp.forecast?`<div class="card"><div class="card-t">Prévisionnel 30 jours</div>${fcItems.slice(0,6).map(s=>{const isInc=s._tp==='i';return`<div class="fc-row"><span class="fc-date">${s.next.slice(5)}</span><span class="fc-label">${s.domain?`<img style="width:13px;height:13px;border-radius:3px;vertical-align:middle;margin-right:4px" src="${logoUrl(s.domain)}" onerror="this.style.display='none'">`:''}${esc(s.name)}</span><span class="mono xs ${isInc?'g':'p'}">${isInc?'+':'−'}${fmtEur(s.a)}</span></div>`;}).join('')}<div style="display:flex;justify-content:flex-end;padding-top:8px;border-top:1px solid var(--border);margin-top:4px"><span class="mono xs" style="color:var(--pink)">Charges : −${fmtEur(fcItems.filter(s=>s._tp!=='i').reduce((s,i)=>s+i.a,0))}</span></div></div>`:'';
@@ -989,7 +1031,7 @@ function rDash(){
   kpiHtml+='</div>';
   // Edit KPIs button
   const editKpiBtn=`<div style="text-align:right;margin-bottom:8px"><button onclick="openKpiEditor()" style="background:none;border:1px solid var(--border);color:var(--dim);font-family:var(--mono);font-size:9px;letter-spacing:1px;padding:5px 10px;cursor:pointer;border-radius:6px">⚙ Éditer KPIs</button></div>`;
-  return `${alerts}${budgetAlertHtml}${weeklyHtml}${editKpiBtn}${kpiHtml}${ravHtml}${rule}${goalsP}${kp.categories?`<div class="card"><div class="card-t">Dépenses par catégorie</div>${catBars}</div>`:''}${kp.categories?_renderTrends3m():''}${kp.chart6m?`<div class="card"><div class="card-t">6 mois <span style="color:var(--green);font-size:8px">■</span> revenus <span style="color:var(--pink);font-size:8px">■</span> dépenses</div><canvas id="balanceChart" style="width:100%;max-height:180px"></canvas></div>`:''}${projHtml}${forecast}${kp.recentes?`<div class="card"><div class="card-t">Récentes</div>${txs.length===0?'<div class="empty">Aucune transaction ce mois</div>':recent}${more}</div>`:''}`;
+  return `${alerts}${budgetAlertHtml}${weeklyHtml}${dailyHtml}${editKpiBtn}${kpiHtml}${ravHtml}${rule}${goalsP}${kp.categories?`<div class="card"><div class="card-t">Dépenses par catégorie</div>${catBars}</div>`:''}${kp.categories?_renderTrends3m():''}${kp.chart6m?`<div class="card"><div class="card-t">6 mois <span style="color:var(--green);font-size:8px">■</span> revenus <span style="color:var(--pink);font-size:8px">■</span> dépenses</div><canvas id="balanceChart" style="width:100%;max-height:180px"></canvas></div>`:''}${projHtml}${forecast}${kp.recentes?`<div class="card"><div class="card-t">Récentes</div>${txs.length===0?'<div class="empty">Aucune transaction ce mois</div>':recent}${more}</div>`:''}`;
 }
 function renderBalanceChart(m6){
   if(!m6||typeof Chart==='undefined')return;
@@ -1512,8 +1554,10 @@ function rSettings(){
   </div>
   <div class="card">
     <div class="card-t">Budget hebdomadaire</div>
-    <p class="mono xxs" style="color:var(--muted);margin-bottom:10px;line-height:1.5">Plafond de dépenses par semaine. Laissez vide pour désactiver.</p>
+    <p class="mono xxs" style="color:var(--muted);margin-bottom:10px;line-height:1.5">Plafond de dépenses par semaine. Cochez les catégories à inclure.</p>
     <label class="fl">Plafond par semaine (${curSymbol()})<input id="weeklyBudgetInput" class="fi" type="text" inputmode="decimal" placeholder="Ex : 100" value="${data.weeklyBudget||''}"></label>
+    <div style="margin-top:12px;margin-bottom:8px"><span class="mono xxs" style="color:var(--dim);letter-spacing:1px">CATÉGORIES INCLUSES</span></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px">${CATS.filter(c=>c.type!=='income'&&c.type!=='savings').map(c=>{const chk=(data.weeklyBudgetCats||[]).includes(c.name)||!(data.weeklyBudgetCats);return`<label style="display:flex;align-items:center;gap:6px;padding:5px 0;cursor:pointer"><input type="checkbox" class="wb-cat-chk" data-cat="${c.name}" ${chk?'checked':''} style="width:16px;height:16px;accent-color:var(--gold);cursor:pointer"><span class="mono xxs" style="color:var(--text)">${c.icon} ${c.name}</span></label>`;}).join('')}</div>
     <button class="submit" style="margin-top:12px" onclick="saveWeeklyBudget()">Sauvegarder</button>
   </div>
   <div class="card">
@@ -1548,6 +1592,8 @@ function openKpiEditor(){
 function saveWeeklyBudget(){
   const v=parseInput(document.getElementById('weeklyBudgetInput')?.value);
   if(!isNaN(v)&&v>0)data.weeklyBudget=v;else delete data.weeklyBudget;
+  const cats=[];document.querySelectorAll('.wb-cat-chk').forEach(chk=>{if(chk.checked)cats.push(chk.dataset.cat);});
+  data.weeklyBudgetCats=cats;
   save();toast('Budget hebdomadaire sauvegardé');
 }
 function saveBudgets(){
