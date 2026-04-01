@@ -1235,23 +1235,36 @@ function saveStockApiKey(){
   if(!key){toast('Clé vide','err');return;}
   localStorage.setItem('stockApiKey',key);toast('Clé API sauvegardée');
 }
-async function _fetchBRVM(ticker){
+let _brvmCache=null;let _brvmCacheTs=0;
+async function _fetchBRVMAll(){
+  if(_brvmCache&&Date.now()-_brvmCacheTs<60000)return _brvmCache;
   const PROXIES=['https://api.allorigins.win/raw?url=','https://corsproxy.io/?'];
-  const url=`https://www.brvm.org/fr/cours-actions/0/${encodeURIComponent(ticker)}`;
+  const url='https://www.brvm.org/fr/cours-actions/0';
   for(const px of PROXIES){
     try{
-      const r=await fetch(px+encodeURIComponent(url),{signal:AbortSignal.timeout(8000)});
+      const r=await fetch(px+encodeURIComponent(url),{signal:AbortSignal.timeout(10000)});
       if(!r.ok)continue;
       const html=await r.text();
-      const m=html.match(/class="[^"]*stock-price[^"]*"[^>]*>([\s\S]*?)<\//i)
-        ||html.match(new RegExp(ticker+'[\\s\\S]{0,300}?([\\d\\s]+)\\s*FCFA','i'));
-      if(m){const p=parseFloat(m[1].replace(/\s/g,'').replace(',','.'));if(p>0)return p;}
-      const rows=[...html.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map(x=>x[1].replace(/<[^>]*>/g,'').trim());
-      const idx=rows.findIndex(r=>r.toUpperCase().includes(ticker.toUpperCase()));
-      if(idx>=0){for(let i=idx+1;i<idx+6&&i<rows.length;i++){const v=parseFloat(rows[i].replace(/\s/g,'').replace(',','.'));if(v>10)return v;}}
+      const map={};
+      /* Method 1: parse <div class="item"><span>TICKER</span>&nbsp;<span>PRICE</span> */
+      const items=[...html.matchAll(/<div\s+class="item">\s*<span>([A-Z]{2,6})<\/span>[^<]*<span>([\d\s]+)<\/span>/gi)];
+      for(const it of items){const t=it[1].toUpperCase();const p=parseFloat(it[2].replace(/\s/g,''));if(p>0)map[t]=p;}
+      /* Method 2 fallback: parse table rows — ticker in td[0], skip td[1] (name), skip td[2] (volume), price in td[3] */
+      if(!Object.keys(map).length){
+        const rows=[...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
+        for(const row of rows){
+          const cells=[...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map(x=>x[1].replace(/<[^>]*>/g,'').trim());
+          if(cells.length>=4){const t=cells[0].toUpperCase();if(/^[A-Z]{2,6}$/.test(t)){const p=parseFloat(cells[3].replace(/\s/g,'').replace(',','.'));if(p>0)map[t]=p;}}
+        }
+      }
+      if(Object.keys(map).length){_brvmCache=map;_brvmCacheTs=Date.now();return map;}
     }catch(e){}
   }
   return null;
+}
+async function _fetchBRVM(ticker){
+  const map=await _fetchBRVMAll();
+  return map?map[ticker.toUpperCase()]||null:null;
 }
 async function refreshAllStockPrices(){
   const key=localStorage.getItem('stockApiKey');
