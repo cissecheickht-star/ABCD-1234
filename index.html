@@ -119,17 +119,17 @@ html.theme-fx,html.theme-fx *,html.theme-fx *::before,html.theme-fx *::after{
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;overscroll-behavior:none}
 .app{display:flex;flex-direction:column;height:100vh;padding-top:var(--safe-top);overflow:hidden}
-.hdr{padding:16px 16px 8px;flex-shrink:0}
-.hdr-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.hdr{padding:12px 14px 6px;flex-shrink:0}
+.hdr-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
 .hdr-left{display:flex;align-items:center;gap:11px}
 .hdr-avatar{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,var(--gold),#E8C9A0);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:var(--bg);cursor:pointer;flex-shrink:0;border:1px solid rgba(200,169,126,.3);box-shadow:0 2px 12px rgba(200,169,126,.25)}
 .hdr-avatar.empty{background:var(--border);color:var(--dim);box-shadow:none;border-color:var(--border2)}
 .eyebrow{font-size:10px;letter-spacing:2px;color:var(--gold);font-family:var(--mono);text-transform:uppercase;margin-bottom:2px;opacity:.8}
 .h-title{font-size:22px;font-weight:600;color:#F0E8DC;letter-spacing:-.5px}
-.mnav{display:flex;align-items:center;gap:6px}
-.mbtn{background:var(--border);border:1px solid var(--border2);color:var(--dim);width:32px;height:32px;border-radius:8px;font-size:17px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s}
+.mnav{display:flex;align-items:center;gap:4px}
+.mbtn{background:var(--border);border:1px solid var(--border2);color:var(--dim);width:30px;height:30px;border-radius:8px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s}
 .mbtn:active{background:var(--border2)}
-.mlbl{font-family:var(--mono);font-size:11px;color:var(--dim);min-width:68px;text-align:center;font-weight:500}
+.mlbl{font-family:var(--mono);font-size:10px;color:var(--dim);min-width:56px;text-align:center;font-weight:500}
 .main{flex:1;min-height:0;padding:8px 14px calc(100px + var(--safe-bottom));overflow-y:auto;-webkit-overflow-scrolling:touch}
 /* Bottom Nav */
 .bnav{position:fixed;bottom:0;left:0;right:0;background:rgba(10,12,15,.96);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border-top:1px solid var(--border);display:flex;align-items:flex-end;justify-content:space-around;padding-bottom:var(--safe-bottom);z-index:100}
@@ -147,14 +147,14 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 .nav-more-item .nmi-ic{font-size:22px}
 .nav-more-item .nmi-lb{font-family:var(--font);font-size:11px;font-weight:500;letter-spacing:.3px}
 /* Cards */
-.card{background:linear-gradient(145deg,rgba(22,25,31,.95),rgba(14,16,20,.95));border:1px solid rgba(255,255,255,.07);border-radius:var(--R);padding:16px;margin-bottom:12px;box-shadow:0 4px 24px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.04)}
-.card-t{font-family:var(--mono);font-size:9px;letter-spacing:2.5px;color:var(--muted);text-transform:uppercase;margin-bottom:14px;font-weight:500}
+.card{background:linear-gradient(145deg,rgba(22,25,31,.95),rgba(14,16,20,.95));border:1px solid rgba(255,255,255,.07);border-radius:var(--R);padding:14px;margin-bottom:8px;box-shadow:0 4px 24px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.04)}
+.card-t{font-family:var(--mono);font-size:9px;letter-spacing:2.5px;color:var(--muted);text-transform:uppercase;margin-bottom:10px;font-weight:500}
 /* KPIs */
-.kpis{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
-.kpi{background:linear-gradient(145deg,rgba(22,25,31,.9),rgba(14,16,20,.9));border:1px solid rgba(255,255,255,.07);border-radius:var(--Rs);padding:14px;box-shadow:0 2px 12px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.03)}
+.kpis{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px}
+.kpi{background:linear-gradient(145deg,rgba(22,25,31,.9),rgba(14,16,20,.9));border:1px solid rgba(255,255,255,.07);border-radius:var(--Rs);padding:11px 12px;box-shadow:0 2px 12px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.03)}
 .kpi.w3{grid-column:1/-1}
-.kpi-l{font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px}
-.kpi-v{font-size:20px;font-weight:600;letter-spacing:-.5px;color:#F0E8DC}
+.kpi-l{font-family:var(--mono);font-size:8px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px}
+.kpi-v{font-size:18px;font-weight:600;letter-spacing:-.5px;color:#F0E8DC}
 .kpi-s{font-family:var(--mono);font-size:11px;margin-right:1px}
 /* TX */
 .tx{display:flex;align-items:center;padding:11px 0;border-bottom:1px solid rgba(255,255,255,.04);gap:10px}
@@ -283,29 +283,29 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 .profile-avatar-big{width:84px;height:84px;border-radius:42px;background:linear-gradient(135deg,var(--gold),#E8C9A0);display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:700;color:var(--bg);box-shadow:0 8px 32px rgba(200,169,126,.35);border:2px solid rgba(200,169,126,.2)}
 /* Mobile */
 @media(max-width:640px){
-  .mbtn{width:36px;height:36px;font-size:18px}
+  .mbtn{width:32px;height:32px;font-size:17px}
   .submit{padding:17px;font-size:15px}
   .fi,.fs{padding:14px 13px;font-size:16px}
   .sab{padding:7px 9px;font-size:9px}
   .pill{padding:9px 13px;font-size:9px}
   .tx-del{padding-left:10px;font-size:20px}
   .tx-lb,.tx-am{font-size:14px}
-  .kpi-v{font-size:22px}
+  .kpi-v{font-size:18px}
   .sub-nm,.sub-pr{font-size:14px}
   .card-t,.kpi-l,.imp-table th{font-size:9px;letter-spacing:2px}
   .imp-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
   .imp-table{min-width:520px}
   .cal-day{min-height:44px}
   .toast{font-size:13px;padding:11px 22px}
-  .kpis{gap:6px}
-  .main{padding:8px 12px calc(100px + var(--safe-bottom))}
-  .hdr{padding:14px 14px 6px}
+  .kpis{gap:5px}
+  .main{padding:6px 12px calc(90px + var(--safe-bottom))}
+  .hdr{padding:12px 14px 6px}
   .goal-card{padding:14px 0}.asset-row{padding:12px 0}
   .fr3{grid-template-columns:1fr 1fr}
   .logo-grid{grid-template-columns:repeat(3,1fr)}
   .litem{padding:12px 4px}.lfb,.limg{width:36px;height:36px}
 }
-@media(max-width:380px){.fr2,.fr3{grid-template-columns:1fr}.kpis{grid-template-columns:1fr}.kpi.w3{grid-column:auto}.h-title{font-size:19px}}
+@media(max-width:359px){.fr2,.fr3{grid-template-columns:1fr}.kpis{grid-template-columns:1fr}.kpi.w3{grid-column:auto}.h-title{font-size:19px}}
 button,a,[onclick]{touch-action:manipulation}
 .main,.logo-grid{-webkit-overflow-scrolling:touch}
 /* Savings section */
@@ -1110,13 +1110,13 @@ function rDash(){
   let kpiHtml='<div class="kpis">';
   if(kp.revenus) kpiHtml+=`<div class="kpi"><div class="kpi-l">Revenus${deltaTag(incDelta,false)}</div><div class="kpi-v"><span class="kpi-s g">↗</span>${fmtEur(inc)}</div></div>`;
   if(kp.depenses) kpiHtml+=`<div class="kpi"><div class="kpi-l">Dépenses${deltaTag(expDelta,true)}</div><div class="kpi-v"><span class="kpi-s p">↘</span>${fmtEur(exp)}</div></div>`;
-  if(kp.solde) kpiHtml+=`<div class="kpi"><div class="kpi-l">Solde</div><div class="kpi-v" style="color:${bal>=0?'var(--gold)':'var(--red)'}">${fmtEur(bal)}</div></div>`;
+  if(kp.solde) kpiHtml+=`<div class="kpi w3"><div class="kpi-l">Solde</div><div class="kpi-v" style="color:${bal>=0?'var(--gold)':'var(--red)'}">${fmtEur(bal)}</div></div>`;
 
   kpiHtml+=nwKpi;
   kpiHtml+=debtKpi;
   kpiHtml+='</div>';
-  // Edit KPIs button
-  const editKpiBtn=`<div style="text-align:right;margin-bottom:8px"><button onclick="openKpiEditor()" style="background:none;border:1px solid var(--border);color:var(--dim);font-family:var(--mono);font-size:9px;letter-spacing:1px;padding:5px 10px;cursor:pointer;border-radius:6px">⚙ Éditer KPIs</button></div>`;
+  // Edit KPIs button — integrated after KPI grid
+  const editKpiBtn=`<div style="text-align:right;margin-bottom:4px"><button onclick="openKpiEditor()" style="background:none;border:1px solid var(--border);color:var(--dim);font-family:var(--mono);font-size:8px;letter-spacing:1px;padding:4px 8px;cursor:pointer;border-radius:6px">⚙ Éditer KPIs</button></div>`;
   // Dashboard sections — orderable
   const _dashSections={
     alerts:{html:alerts+budgetAlertHtml,always:true},
@@ -3478,8 +3478,8 @@ function renderDonutChart(byCat){
   if(!byCat||!byCat.length||typeof Chart==='undefined')return '';
   const total=byCat.reduce((s,c)=>s+c.total,0);
   const top8=byCat.slice(0,8);
-  const legend=top8.map(c=>`<div class="donut-legend-item"><span class="donut-dot" style="background:${c.color}"></span><span class="donut-label">${c.icon} ${c.name}</span><span class="donut-val">${Math.round(c.total/total*100)}%</span></div>`).join('');
-  return `<div class="card"><div class="card-t">Répartition des dépenses</div><div style="display:flex;align-items:center;gap:16px"><div style="flex-shrink:0;width:120px;height:120px"><canvas id="donutChart"></canvas></div><div class="donut-legend" style="flex:1">${legend}</div></div></div>`;
+  const legend=top8.map(c=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0"><span class="donut-dot" style="background:${c.color}"></span><span class="mono xxs" style="color:var(--dim);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.icon} ${c.name}</span><span class="mono xxs" style="color:var(--text);font-weight:600;white-space:nowrap">${Math.round(c.total/total*100)}% · ${fmtEur(c.total)}</span></div>`).join('');
+  return `<div class="card"><div class="card-t">Répartition des dépenses</div><div style="display:flex;justify-content:center;margin-bottom:12px"><div style="width:140px;height:140px"><canvas id="donutChart"></canvas></div></div><div>${legend}</div></div>`;
 }
 function initDonutChart(byCat){
   const canvas=document.getElementById('donutChart');if(!canvas||typeof Chart==='undefined')return;
@@ -3550,19 +3550,27 @@ function globalSearchUpdate(){
 // ═══════════════════════════════════════════════════════════
 function renderAnnualComparison(){
   const yr=sy;const prevYr=yr-1;
-  let curTotal=0,prevTotal=0,curInc=0,prevInc=0;
-  for(let m=0;m<=11;m++){
-    const curTxs=data.t.filter(t=>{const d=new Date(t.d);return d.getMonth()===m&&d.getFullYear()===yr;});
-    const preTxs=data.t.filter(t=>{const d=new Date(t.d);return d.getMonth()===m&&d.getFullYear()===prevYr;});
-    curTotal+=curTxs.filter(t=>t.tp==='e').reduce((s,t)=>s+t.a,0);
-    prevTotal+=preTxs.filter(t=>t.tp==='e').reduce((s,t)=>s+t.a,0);
-    curInc+=curTxs.filter(t=>t.tp==='i').reduce((s,t)=>s+t.a,0);
-    prevInc+=preTxs.filter(t=>t.tp==='i').reduce((s,t)=>s+t.a,0);
+  // Compare same months only (jan→current month) for fair comparison
+  const maxMonth=yr===new Date().getFullYear()?new Date().getMonth():11;
+  let curTotal=0,prevTotal=0;
+  const monthData=[];
+  for(let m=0;m<=maxMonth;m++){
+    const curExp=data.t.filter(t=>{const d=new Date(t.d);return d.getMonth()===m&&d.getFullYear()===yr&&t.tp==='e';}).reduce((s,t)=>s+t.a,0);
+    const preExp=data.t.filter(t=>{const d=new Date(t.d);return d.getMonth()===m&&d.getFullYear()===prevYr&&t.tp==='e';}).reduce((s,t)=>s+t.a,0);
+    curTotal+=curExp;prevTotal+=preExp;
+    monthData.push({m,cur:curExp,pre:preExp});
   }
   if(!prevTotal&&!curTotal)return '';
   const delta=prevTotal>0?Math.round((curTotal/prevTotal-1)*100):0;
   const deltaCol=delta<=0?'var(--green)':'var(--red)';
-  return `<div class="card"><div class="card-t">Comparaison annuelle</div><div style="display:flex;justify-content:space-around;text-align:center"><div><div class="mono xxs" style="color:var(--muted)">${prevYr}</div><div class="mono sm" style="color:var(--pink);font-weight:600">${fmtEur(prevTotal)}</div></div><div><div class="mono xxs" style="color:var(--muted)">${yr}</div><div class="mono sm" style="color:var(--pink);font-weight:600">${fmtEur(curTotal)}</div></div><div><div class="mono xxs" style="color:var(--muted)">Évolution</div><div class="mono sm" style="color:${deltaCol};font-weight:600">${delta>=0?'+':''}${delta}%</div></div></div></div>`;
+  const period=maxMonth<11?`Jan—${MSH[maxMonth]}`:'Année';
+  // Mini bars for each month
+  const maxVal=Math.max(...monthData.map(d=>Math.max(d.cur,d.pre)),1);
+  const bars=monthData.map(d=>{
+    const h1=Math.round(d.pre/maxVal*28);const h2=Math.round(d.cur/maxVal*28);
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex:1"><div style="display:flex;gap:1px;align-items:flex-end;height:30px"><div style="width:4px;height:${h1}px;background:var(--muted);border-radius:1px;opacity:.5"></div><div style="width:4px;height:${h2}px;background:var(--pink);border-radius:1px"></div></div><span class="mono" style="font-size:7px;color:var(--muted)">${MSH[d.m][0]}</span></div>`;
+  }).join('');
+  return `<div class="card"><div class="card-t">Comparaison ${period}</div><div style="display:flex;gap:2px;margin-bottom:12px;align-items:flex-end">${bars}</div><div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;gap:12px"><div><div class="mono xxs" style="color:var(--muted)">${prevYr} <span style="display:inline-block;width:8px;height:8px;background:var(--muted);border-radius:1px;vertical-align:middle;opacity:.5"></span></div><div class="mono xs" style="color:var(--dim);font-weight:600">${fmtEur(prevTotal)}</div></div><div><div class="mono xxs" style="color:var(--muted)">${yr} <span style="display:inline-block;width:8px;height:8px;background:var(--pink);border-radius:1px;vertical-align:middle"></span></div><div class="mono xs" style="color:var(--text);font-weight:600">${fmtEur(curTotal)}</div></div></div><div style="text-align:right"><div class="mono xxs" style="color:var(--muted)">Évolution</div><div class="mono sm" style="color:${deltaCol};font-weight:700">${delta>=0?'+':''}${delta}%</div></div></div></div>`;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3640,4 +3648,3 @@ document.getElementById('imageOcrInput').addEventListener('change',function(){
 </script>
 </body>
 </html>
-
