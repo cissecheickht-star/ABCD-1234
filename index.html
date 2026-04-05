@@ -857,11 +857,19 @@ function changeMonth(delta){
 }
 function updateHeader(){document.getElementById('mLabel').textContent=MSH[sm]+' '+sy;}
 (function initSwipe(){
-  let sx=0,sy2=0;
-  document.addEventListener('touchstart',e=>{sx=e.touches[0].clientX;sy2=e.touches[0].clientY;},{passive:true});
+  let sx=0,sy2=0,skip=false;
+  document.addEventListener('touchstart',e=>{
+    sx=e.touches[0].clientX;sy2=e.touches[0].clientY;
+    // Skip swipe if starting on interactive elements, lists, sheets, or calendar grid
+    const t=e.target;
+    skip=!!(t.closest('button,input,textarea,select,a,.sheet,.cal-grid,.cal-day,#importPreview,.modal,[contenteditable]'))
+      || cv==='calendar' || cv==='import' || cv==='add';
+  },{passive:true});
   document.addEventListener('touchend',e=>{
+    if(skip)return;
     const dx=e.changedTouches[0].clientX-sx,dy=e.changedTouches[0].clientY-sy2;
-    if(Math.abs(dx)>60&&Math.abs(dx)>Math.abs(dy)*1.5){
+    // Raise thresholds: 120px min horizontal, ratio 2.5x over vertical
+    if(Math.abs(dx)>120&&Math.abs(dx)>Math.abs(dy)*2.5){
       if(dx>0)changeMonth(-1);else changeMonth(1);
     }
   },{passive:true});
@@ -3034,6 +3042,11 @@ async function startImportPDF(file){
 // ── OCR IMAGE IMPORT ─────────────────────────────────────────
 // Smart OCR parser — handles Revolut screenshots + classic bank formats
 function parseOCRText(text){
+  // Pre-normalize common OCR glitches on decimals/separators
+  // "16, 10 €" → "16,10 €" | "16 .10 €" → "16.10 €" | "16 ,10 €" → "16,10 €"
+  text=text.replace(/(\d)\s*([,.])\s*(\d)/g,'$1$2$3');
+  // Convert middle-dot/bullet used as decimal: "16·10 €" → "16,10 €"
+  text=text.replace(/(\d)[·•]\s?(\d{1,3}\s?[€$£])/g,'$1,$2');
   const lines=text.split('\n').map(l=>l.trim()).filter(Boolean);
   const rows=[];
   const MOIS_FR={janvier:1,'février':2,fevrier:2,mars:3,avril:4,mai:5,juin:6,juillet:7,'août':8,aout:8,septembre:9,octobre:10,novembre:11,'décembre':12,decembre:12,
@@ -3045,8 +3058,9 @@ function parseOCRText(text){
     const ci=cl.lastIndexOf(','),di=cl.lastIndexOf('.');
     return parseFloat(ci>di?cl.replace(/\./g,'').replace(',','.'):cl.replace(/,/g,''));
   };
-  // Amount regex: captures "-106,98 €" or "+110 €" (no decimals) or "−0,25€"
-  const AMT_RX=/([+\-−–]?\s?\d{1,3}(?:[\s.]\d{3})*(?:[,.]\d{2})?)\s?[€$£]/;
+  // Amount regex: captures "-106,98 €", "+110 €" (no decimals), "−0,25€", "16,10 €"
+  // Accepts 1-3 decimal digits (OCR may add/drop a digit)
+  const AMT_RX=/([+\-−–]?\s?\d{1,3}(?:[\s.]\d{3})*(?:[,.]\d{1,3})?)\s?[€$£]/;
   // Weekday parser: "Hier"/"Aujourd'hui"/"Lundi"..."Dimanche" → YYYY-MM-DD
   const JOURS={dimanche:0,lundi:1,mardi:2,mercredi:3,jeudi:4,vendredi:5,samedi:6};
   const parseWeekday=l=>{
@@ -3065,6 +3079,42 @@ function parseOCRText(text){
   // Detect screenshot formats
   const lowerAll=text.toLowerCase().replace(/['']/g,"'");
   const isRevolut=/(petite monnaie|solde actuel|virement instantan)/i.test(lowerAll);
+  // Single-transaction detail view (Apple Wallet / LCL): "État : accepté", "Total", "Contacter LCL"
+  const isTxDetail=/[ée]tat\s*:\s*(accept|refus|en\s*attente)/i.test(lowerAll)
+    && /(contacter|signaler|l'app cartes|mastercard|visa)/i.test(lowerAll);
+  if(isTxDetail){
+    // Find amount (largest/first amount in the text)
+    let amount=null, label=null, dateStr=_ymd(today);
+    for(let i=0;i<lines.length;i++){
+      const m=lines[i].match(AMT_RX);
+      if(m && amount===null){
+        amount=parseAmt(m[1]);
+        // Label is usually the line right after the big amount (or a few lines after)
+        for(let j=i+1;j<Math.min(i+4,lines.length);j++){
+          const next=lines[j].trim();
+          if(next.length>=2 && !AMT_RX.test(next) && !/^\d{2}\/\d{2}\/\d{2,4}/.test(next)
+             && !/[ée]tat\s*:/i.test(next) && !/mastercard|visa|inventive/i.test(next.toLowerCase())
+             && !/^total\b/i.test(next.toLowerCase())){
+            label=next; break;
+          }
+        }
+      }
+      // Date DD/MM/YYYY [HH:MM]
+      const dm=lines[i].match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+      if(dm){
+        const dd=parseInt(dm[1]),mo=parseInt(dm[2]);
+        let yr=parseInt(dm[3]);if(yr<100)yr+=2000;
+        dateStr=`${yr}-${String(mo).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
+      }
+    }
+    if(amount!==null && label){
+      // Detail view of a card transaction = debit (make negative if no sign)
+      if(amount>0)amount=-amount;
+      const isDup=data.t.some(t=>t.d===dateStr&&Math.abs(t.a-Math.abs(amount))<0.01);
+      rows.push({date:dateStr,label:label.substring(0,80),amount,cat:ruleCat(label),isDup});
+      return rows;
+    }
+  }
   // LCL/Apple Pay: weekday labels after transactions, no sign on amounts = all debits
   const isLCLPay=/(derni[èe]res transactions|apple pay|inventive|\blcl\b)/i.test(lowerAll)
     || /\n\s*(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|hier|aujourd'?hui)\s*\n/i.test('\n'+lines.join('\n')+'\n');
