@@ -2738,7 +2738,14 @@ function rImport(){
       <span style="font-family:var(--mono);font-size:9px;color:var(--muted)">${t}</span>
     </div>`).join('')}
   </div>
-  <div id="importPreview"></div>`;
+  <div id="importPreview"></div>
+  <div id="ocrDebugBtn" style="display:none;margin-top:8px">
+    <button onclick="showOCRDebug()" style="background:none;border:1px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:10px;width:100%;padding:10px;cursor:pointer;border-radius:8px;text-transform:uppercase;letter-spacing:1px">🔍 Voir le texte OCR brut (debug)</button>
+  </div>`;
+}
+function showOCRDebug(){
+  const t=window._lastOCRText||'(aucun OCR executé)';
+  openSheet('Texte OCR brut',`<div style="padding:8px 0"><p class="mono xxs" style="color:var(--muted);margin-bottom:10px">Voici ce que Tesseract a lu mot-à-mot dans l'image. Copie-le pour diagnostiquer les glitches :</p><textarea readonly style="width:100%;min-height:280px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px;font-family:var(--mono);font-size:11px;line-height:1.5;resize:vertical">${esc(t)}</textarea><button onclick="navigator.clipboard.writeText(window._lastOCRText||'');toast('Texte copié')" style="margin-top:10px;width:100%;background:var(--green);border:none;color:var(--bg);font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:1px;padding:10px;cursor:pointer;border-radius:8px;text-transform:uppercase">Copier le texte</button></div>`,null);
 }
 
 // ── PDF IMPORT — Relevés bancaires FR (CE, BNP, SG, CA, LCL, CIC) ──
@@ -3149,6 +3156,13 @@ function parseOCRText(text){
         label=label.replace(/\s*apple\s*pay\s*$/i,'').trim();
         if(label.length>=2){
           let amount=parseAmt(amtM[1]);
+          // HEURISTIC: Card screenshots have small amounts (coffee, snacks, lunch).
+          // If OCR merged "1,50" → "150" (3 digits, no decimal, 100-999), divide by 100.
+          // Consumer contactless is capped at 50€ in France, so 100-999€ unlikely.
+          const raw=amtM[1].trim().replace(/^[+\-−–]/,'').replace(/\s/g,'');
+          if(!/[,.]/.test(raw)&&/^\d{3}$/.test(raw)&&Math.abs(amount)>=100&&Math.abs(amount)<=999){
+            amount=amount/100;
+          }
           // In card transaction list, amounts with no sign are DEBITS
           if(!/^[+\-−–]/.test(amtM[1].trim()))amount=-Math.abs(amount);
           if(!isNaN(amount)&&Math.abs(amount)>=0.01){
@@ -3250,6 +3264,9 @@ async function startImportImage(file){
       logger:m=>{if(m.status==='recognizing text')sp(Math.round(m.progress*75)+10,'OCR : '+Math.round(m.progress*100)+'%');}
     });
     sp(88,'Analyse des transactions\u2026');
+    window._lastOCRText=result.data.text; // Expose for debugging
+    const debugBtn=document.getElementById('ocrDebugBtn');
+    if(debugBtn)debugBtn.style.display='block';
     const allRows=parseOCRText(result.data.text);
     sp(100,'');
     setTimeout(()=>{if(statusEl)statusEl.style.display='none';if(prev){prev.src='';prev.style.display='none';}},700);
