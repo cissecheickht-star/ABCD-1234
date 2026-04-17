@@ -272,10 +272,11 @@ body{background:var(--mesh,var(--bg));color:var(--text);font-family:var(--font);
 .goal-card{padding:13px 0;border-bottom:1px solid rgba(255,255,255,.04)}
 .goal-card:last-child{border-bottom:none}
 /* Assets */
-.asset-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+.asset-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.04);gap:8px}
 .asset-row:last-child{border-bottom:none}
-.asset-nm{font-size:13px;font-weight:500;color:var(--text)}
-.asset-cat{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:2px}
+.asset-row>div:first-child{min-width:0;flex:1}
+.asset-nm{font-size:13px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.asset-cat{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* Forecast */
 .fc-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04)}
 .fc-row:last-child{border-bottom:none}
@@ -943,16 +944,16 @@ function updateHeader(){document.getElementById('mLabel').textContent=MSH[sm]+' 
   let sx=0,sy2=0,skip=false;
   document.addEventListener('touchstart',e=>{
     sx=e.touches[0].clientX;sy2=e.touches[0].clientY;
-    // Skip swipe if starting on interactive elements, lists, sheets, or calendar grid
     const t=e.target;
-    skip=!!(t.closest('button,input,textarea,select,a,.sheet,.cal-grid,.cal-day,#importPreview,.modal,[contenteditable]'))
+    // Skip on interactive elements, swipe-to-delete, sheets, calendar grid
+    skip=!!(t.closest('input,textarea,select,.sheet,.cal-grid,.cal-day,#importPreview,.modal,[contenteditable],.tx-swipe-wrap'))
       || cv==='calendar' || cv==='import' || cv==='add';
   },{passive:true});
   document.addEventListener('touchend',e=>{
     if(skip)return;
     const dx=e.changedTouches[0].clientX-sx,dy=e.changedTouches[0].clientY-sy2;
-    // Raise thresholds: 120px min horizontal, ratio 2.5x over vertical
-    if(Math.abs(dx)>120&&Math.abs(dx)>Math.abs(dy)*2.5){
+    // 80px min horizontal, ratio 2x over vertical
+    if(Math.abs(dx)>80&&Math.abs(dx)>Math.abs(dy)*2){
       if(dx>0)changeMonth(-1);else changeMonth(1);
     }
   },{passive:true});
@@ -1360,10 +1361,13 @@ function rDash(){
     recentes:{html:kp.recentes?`<div class="card"><div class="card-t">Récentes</div>${txs.length===0?'<div class="empty-state"><div class="empty-state-icon">📭</div><div class="empty-state-text">Aucune transaction ce mois<br>Ajoutez votre première dépense !</div></div>':recent}${more}</div>`:''},
   };
   const _defaultOrder=['alerts','streak','hero','weeklyCard','dailyBars','goalsRings','shortcuts','kpis','rav','rule','donut','categories','heatmap','trends','chart6m','annual','projection','forecast','recentes'];
+  // Sections always pinned to the top in fixed order
+  const _pinnedTop=['alerts','streak','hero','weeklyCard','dailyBars','goalsRings'];
   // Clean old keys from saved order
   const _obsoleteKeys=new Set(['weekly','daily','weeklyRecap','goals']);
   const _savedOrder=JSON.parse(localStorage.getItem('dashOrder')||'null')||_defaultOrder;
-  const _order=_savedOrder.filter(k=>k in _dashSections&&!_obsoleteKeys.has(k)).concat(_defaultOrder.filter(k=>!_savedOrder.includes(k)&&k in _dashSections));
+  const _restOrder=_savedOrder.filter(k=>k in _dashSections&&!_obsoleteKeys.has(k)&&!_pinnedTop.includes(k)).concat(_defaultOrder.filter(k=>!_savedOrder.includes(k)&&k in _dashSections&&!_pinnedTop.includes(k)));
+  const _order=[..._pinnedTop,..._restOrder];
   return _order.map(k=>_dashSections[k]?.html||'').join('');
 }
 function renderBalanceChart(m6){
@@ -1540,7 +1544,7 @@ function rPatrimoine(){
   const totalA=assets.reduce((s,a)=>s+a.val,0)+totalStocks,totalD=debts.reduce((s,d)=>s+d.val,0),nw=totalA-totalD;
   const ds=calcDebtStats();
   const assetOpts=ASSET_CATS.map(c=>`<option>${c}</option>`).join(''),debtOpts=DEBT_CATS.map(c=>`<option>${c}</option>`).join('');
-  const assetRows=assets.length===0?'<div class="empty">Aucun actif</div>':assets.map(a=>`<div class="asset-row"><div><div class="asset-nm">${esc(a.name)}</div><div class="asset-cat">${a.cat}</div></div><div style="display:flex;align-items:center;gap:6px"><span class="mono sm g">${fmtEur(a.val)}</span><button class="sab ed" onclick="openEditAsset('${a.id}')">✎</button><button class="tx-del" onclick="delAsset('${a.id}')">×</button></div></div>`).join('');
+  const assetRows=assets.length===0?'<div class="empty">Aucun actif</div>':assets.map(a=>`<div class="asset-row"><div><div class="asset-nm">${esc(a.name)}</div><div class="asset-cat">${a.cat}</div></div><div style="display:flex;align-items:center;gap:6px;flex-shrink:0"><span class="mono sm g">${fmtEur(a.val)}</span><button class="sab ed" onclick="openEditAsset('${a.id}')">✎</button><button class="tx-del" onclick="delAsset('${a.id}')">×</button></div></div>`).join('');
   const debtRows=debts.length===0?'<div class="empty">Aucune dette</div>':debts.map(d=>{
     const borrowed=d.borrowed||d.val;const paid=borrowed-d.val;const pct=borrowed>0?Math.round(paid/borrowed*100):0;
     const endStr=d.endDate?` · fin ${d.endDate}`:'';
@@ -1562,7 +1566,7 @@ function rPatrimoine(){
     const isBrvm=st.market==='BRVM';
     const fcfaNote=isBrvm&&userCur!=='XOF'?` <span class="mono xxs" style="color:var(--dim);opacity:.6">${Math.round(st.prix).toLocaleString('fr-FR')} FCFA</span>`:'';
     const mkt=st.market&&st.market!=='Autre'?` <span class="mono xxs" style="color:var(--blue);background:rgba(100,200,200,.1);padding:1px 4px;border-radius:3px">${esc(st.market)}</span>`:'';
-    return`<div class="asset-row"><div><div class="asset-nm">${esc(st.name)}${st.ticker?` <span class="mono xxs" style="color:var(--muted)">${esc(st.ticker)}</span>`:''}${mkt}</div><div class="asset-cat">${st.qty} × ${fmtEur(uPrice)}${fcfaNote}${pnlPct!==null?` · <span style="color:${pnl>=0?'var(--green)':'var(--red)'}">${pnl>=0?'+':''}${pnlPct}%</span>`:''}</div></div><div style="display:flex;align-items:center;gap:6px"><span class="mono sm g">${fmtEur(val)}</span><button class="sab ed" onclick="openAddShares('${st.id}')" title="Renforcer" style="font-size:10px">＋</button><button class="sab ed" onclick="openEditStock('${st.id}')">✎</button><button class="tx-del" onclick="delStock('${st.id}')">×</button></div></div>`;
+    return`<div class="asset-row"><div><div class="asset-nm">${esc(st.name)}${st.ticker?` <span class="mono xxs" style="color:var(--muted)">${esc(st.ticker)}</span>`:''}${mkt}</div><div class="asset-cat">${st.qty} × ${fmtEur(uPrice)}${fcfaNote}${pnlPct!==null?` · <span style="color:${pnl>=0?'var(--green)':'var(--red)'}">${pnl>=0?'+':''}${pnlPct}%</span>`:''}</div></div><div style="display:flex;align-items:center;gap:6px;flex-shrink:0"><span class="mono sm g">${fmtEur(val)}</span><button class="sab ed" onclick="openAddShares('${st.id}')" title="Renforcer" style="font-size:10px">＋</button><button class="sab ed" onclick="openEditStock('${st.id}')">✎</button><button class="tx-del" onclick="delStock('${st.id}')">×</button></div></div>`;
   }).join('');
   return `<div class="kpis"><div class="kpi"><div class="kpi-l">Total actifs</div><div class="kpi-v g">${fmtEur(totalA)}</div></div><div class="kpi"><div class="kpi-l">Reste à payer</div><div class="kpi-v r">−${fmtEur(totalD)}</div></div>${debtKpis}<div class="kpi w3"><div class="kpi-l">Patrimoine net</div><div class="kpi-v" style="color:${nw>=0?'var(--gold)':'var(--red)'}">${fmtEur(nw)}</div></div></div><div class="card"><div class="card-t">Actifs</div>${assetRows}${pieHtml}</div><div class="card"><div class="card-t">Actions · Portefeuille</div>${(()=>{const ts=parseInt(localStorage.getItem('_brvmLastRefresh')||'0');const hasBrvm=stocks.some(s=>s.market==='BRVM');const dateStr=ts?new Date(ts).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'jamais';return hasBrvm?`<div class="mono xxs" style="color:var(--dim);margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">Dernière MAJ : ${dateStr}<button id="brvmRefreshBtn" onclick="_manualRefreshBRVM()" style="background:none;border:1px solid var(--dim);color:var(--dim);border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;transition:all .2s">↻ Actualiser</button></div>`:'';})()}${stocks.length?`<div style="display:flex;justify-content:space-between;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.04)"><span class="mono xs" style="color:var(--dim)">Total actions</span><span class="mono sm g">${fmtEur(totalStocks)}</span></div>`:''} ${stockRows}</div><div class="card"><div class="card-t">Dettes & crédits</div>${debtRows}</div><div class="card"><div class="card-t">Ajouter un actif</div><div class="fg"><label class="fl">Nom<input id="aName" class="fi" type="text" placeholder="Livret A, Actions, Appartement…"></label><div class="fr2"><label class="fl">Valeur (${curSymbol()})<input id="aVal" class="fi" type="text" inputmode="decimal" placeholder="0"></label><label class="fl">Catégorie<select id="aCat" class="fs">${assetOpts}</select></label></div><button class="submit" style="background:linear-gradient(135deg,var(--green),#96D8B8)" onclick="addAsset()">Ajouter actif →</button></div></div><div class="card"><div class="card-t">Ajouter une dette / crédit</div><div class="fg"><label class="fl">Nom<input id="dName" class="fi" type="text" placeholder="Prêt immobilier, Crédit auto…"></label><div class="fr2"><label class="fl">Reste à payer (${curSymbol()})<input id="dVal" class="fi" type="text" inputmode="decimal" placeholder="0"></label><label class="fl">Montant emprunté (${curSymbol()})<input id="dBorrowed" class="fi" type="text" inputmode="decimal" placeholder="Total initial"></label></div><div class="fr3"><label class="fl">Mensualité (${curSymbol()})<input id="dMens" class="fi" type="text" inputmode="decimal" placeholder="0"></label><label class="fl">Taux (%/an)<input id="dRate" class="fi" type="number" inputmode="decimal" placeholder="3.5" step="0.1"></label><label class="fl">Date de fin<input id="dEnd" class="fi" type="month" placeholder="YYYY-MM"></label></div><label class="fl">Catégorie<select id="dCat" class="fs">${debtOpts}</select></label><button class="submit" style="background:linear-gradient(135deg,var(--pink),#D896B8)" onclick="addDebt()">Ajouter dette →</button></div></div><div class="card"><div class="card-t">Ajouter une action</div><div class="fg"><label class="fl">Nom / Entreprise<input id="stName" class="fi" type="text" placeholder="Apple, SONATEL, LVMH…"></label><div class="fr2"><label class="fl">Marché<select id="stMarket" class="fs" onchange="toggleBrvmTicker()"><option value="Euronext">Euronext (Paris)</option><option value="BRVM">BRVM (Abidjan)</option><option value="NYSE">NYSE</option><option value="NASDAQ">NASDAQ</option><option value="LSE">LSE (Londres)</option><option value="Autre">Autre</option></select></label><label class="fl" id="stTickerWrap">Ticker<input id="stTicker" class="fi" type="text" placeholder="AAPL, SNTS, MC.PA…" style="text-transform:uppercase"></label></div><div class="fr2"><label class="fl" id="stPrixLabel">Quantité<input id="stQty" class="fi" type="text" inputmode="decimal" placeholder="10"></label><label class="fl" id="stPrixWrap">Prix actuel (${curSymbol()})<input id="stPrix" class="fi" type="text" inputmode="decimal" placeholder="150.00"></label></div><label class="fl" id="stPrixAchatWrap">Prix d'achat (${curSymbol()})<input id="stPrixAchat" class="fi" type="text" inputmode="decimal" placeholder="120.00"></label><button class="submit" style="background:linear-gradient(135deg,var(--blue),#7EC8C8)" onclick="addStock()">Ajouter action →</button></div></div><div class="card"><div class="card-t">Cotations en temps réel</div><div class="fg"><label class="fl">Clé API Alpha Vantage <span class="mono xxs" style="color:var(--muted)">(gratuit sur alphavantage.co)</span><input id="stockApiKey" class="fi" type="text" placeholder="Votre clé API…" value="${localStorage.getItem('stockApiKey')||''}"></label><div style="display:flex;gap:8px"><button class="submit" style="flex:1;background:linear-gradient(135deg,var(--blue),#7EC8C8)" onclick="saveStockApiKey()">Sauver clé</button><button class="submit" style="flex:1;background:linear-gradient(135deg,var(--green),#96D8B8)" onclick="refreshAllStockPrices()">↻ Rafraîchir les prix</button></div></div></div>`;
 }
