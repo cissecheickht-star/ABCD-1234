@@ -1321,9 +1321,23 @@ function _computeInsights(){
   const DAY_NAMES=['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi'];
   const txExp=data.t.filter(t=>t.tp==='e'&&!t._isSub);
   const txAll=data.t||[];
+  // Mois affiché sur le dashboard
   const thisMoTx=data.t.filter(t=>{const d=new Date(t.d);return d.getMonth()===sm&&d.getFullYear()===sy;});
-  const thisMoExp=thisMoTx.filter(t=>t.tp==='e').reduce((s,t)=>s+t.a,0);
-  const thisMoInc=thisMoTx.filter(t=>t.tp==='i').reduce((s,t)=>s+t.a,0);
+  const thisMoExpManual=thisMoTx.filter(t=>t.tp==='e').reduce((s,t)=>s+t.a,0);
+  const thisMoIncManual=thisMoTx.filter(t=>t.tp==='i').reduce((s,t)=>s+t.a,0);
+  // Inclure revenus/dépenses récurrents projetés sur ce mois (non encore renouvelés en tx manuelles)
+  let thisMoProjInc=0,thisMoProjExp=0;
+  try{
+    const proj=mSubsTx();
+    thisMoProjInc=proj.filter(t=>t.tp==='i').reduce((s,t)=>s+t.a,0);
+    thisMoProjExp=proj.filter(t=>t.tp==='e').reduce((s,t)=>s+t.a,0);
+  }catch(e){}
+  const thisMoExp=thisMoExpManual+thisMoProjExp;
+  const thisMoInc=thisMoIncManual+thisMoProjInc;
+  // Est-ce le mois réel en cours ? Les insights "projection / burn rate" n'ont de sens que dans ce cas.
+  const isCurrentMonth=(now.getMonth()===sm&&now.getFullYear()===sy);
+  const isPastMonth=((sy<now.getFullYear())||(sy===now.getFullYear()&&sm<now.getMonth()));
+  const isFutureMonth=((sy>now.getFullYear())||(sy===now.getFullYear()&&sm>now.getMonth()));
   // 1) Semaine vs moyenne 4 sem.
   try{
     const w1=txExp.filter(t=>t.d>=dAgo(6)&&t.d<=todayStr).reduce((s,t)=>s+t.a,0);
@@ -1342,52 +1356,64 @@ function _computeInsights(){
       }
     }
   }catch(e){}
-  // 2) Projection de fin de mois (nouvelle)
+  // 2) Projection de fin de mois — uniquement sur le mois réel en cours
   try{
-    if(thisMoExp>0){
+    if(isCurrentMonth&&(thisMoExpManual>0||thisMoProjExp>0)){
       const dayOfMo=now.getDate();
       const daysInMo=new Date(sy,sm+1,0).getDate();
       const pctTime=dayOfMo/daysInMo;
       if(pctTime>0.15&&pctTime<0.95){
-        const projExp=thisMoExp/pctTime;
-        const projNet=thisMoInc-projExp;
-        // Include recurring subs projected for the rest of the month (best-effort)
+        // On extrapole uniquement les dépenses manuelles (courantes) au prorata temporel,
+        // et on ajoute les subs projetés tels quels (ils se produisent à date fixe, pas proportionnellement).
+        const manualExtrap=thisMoExpManual/pctTime;
+        const projExpTotal=manualExtrap+thisMoProjExp;
+        const projNet=thisMoInc-projExpTotal;
         insights.push({
           kind:projNet>=0?'good':'bad',
           icon:projNet>=0?'🧭':'⚠️',
           priority:projNet<0?9:4,
           title:projNet>=0?`Fin du mois : environ ${fmtEur(projNet)}`:`Alerte : déficit prévu ${fmtEur(projNet)}`,
-          msg:`Au rythme actuel (J+${dayOfMo}/${daysInMo}) · ~${fmtEur(projExp)} de dépenses`,
+          msg:`Au rythme actuel (J${dayOfMo}/${daysInMo}) · ~${fmtEur(projExpTotal)} de dépenses`,
           cta:projNet<0?{label:'Voir catégories →',action:"navTo('history')"}:null
         });
       }
     }
   }catch(e){}
-  // 3) Budget burn rate mensuel (nouveau)
+  // 3) Budget burn rate mensuel — compare les dépenses DES CATÉGORIES BUDGÉTÉES à leur budget total
   try{
-    const monthlyBudget=Object.values(data.b||{}).reduce((s,v)=>s+(Number(v)||0),0);
-    if(monthlyBudget>0&&thisMoExp>0){
-      const dayOfMo=now.getDate();
-      const daysInMo=new Date(sy,sm+1,0).getDate();
-      const pctTime=Math.round(dayOfMo/daysInMo*100);
-      const pctUsed=Math.round(thisMoExp/monthlyBudget*100);
-      if(pctUsed>=pctTime+15&&pctUsed<=120){
-        insights.push({
-          kind:pctUsed>=100?'bad':'warn',
-          icon:'🔥',priority:pctUsed>=100?9:7,
-          title:pctUsed>=100?`Budget mensuel dépassé (${pctUsed}%)`:`${pctUsed}% du budget mensuel consommé à J+${pctTime}%`,
-          msg:`${fmtEur(thisMoExp)} / ${fmtEur(monthlyBudget)} · ${daysInMo-dayOfMo}j restants`,
-          bar:{pct:Math.min(pctUsed,120),color:pctUsed>=100?'#C87EA0':'#FFAA44'},
-          cta:null
-        });
-      }else if(pctUsed<=pctTime-15&&pctUsed>10){
-        insights.push({
-          kind:'good',icon:'🎯',priority:3,
-          title:`Sous-budget : ${pctUsed}% consommé à J+${pctTime}%`,
-          msg:`${fmtEur(monthlyBudget-thisMoExp)} encore disponibles`,
-          bar:{pct:pctUsed,color:'#7EC8A9'},
-          cta:null
-        });
+    if(isCurrentMonth){
+      const budgetedCats=Object.keys(data.b||{}).filter(c=>Number(data.b[c])>0);
+      const monthlyBudget=budgetedCats.reduce((s,c)=>s+Number(data.b[c]),0);
+      // Dépenses cumulées ce mois sur les catégories budgétées (manuelles + projetées)
+      const expBudgeted=(()=>{
+        const expManual=thisMoTx.filter(t=>t.tp==='e'&&budgetedCats.includes(t.c)).reduce((s,t)=>s+t.a,0);
+        let expProj=0;
+        try{expProj=mSubsTx().filter(t=>t.tp==='e'&&budgetedCats.includes(t.c)).reduce((s,t)=>s+t.a,0);}catch(e){}
+        return expManual+expProj;
+      })();
+      if(monthlyBudget>0&&expBudgeted>0){
+        const dayOfMo=now.getDate();
+        const daysInMo=new Date(sy,sm+1,0).getDate();
+        const pctTime=Math.round(dayOfMo/daysInMo*100);
+        const pctUsed=Math.round(expBudgeted/monthlyBudget*100);
+        if(pctUsed>=pctTime+15&&pctUsed<=150){
+          insights.push({
+            kind:pctUsed>=100?'bad':'warn',
+            icon:'🔥',priority:pctUsed>=100?9:7,
+            title:pctUsed>=100?`Plafonds budgétés dépassés (${pctUsed}%)`:`${pctUsed}% des plafonds consommés à J${pctTime}%`,
+            msg:`${fmtEur(expBudgeted)} / ${fmtEur(monthlyBudget)} sur ${budgetedCats.length} cat. · ${daysInMo-dayOfMo}j restants`,
+            bar:{pct:Math.min(pctUsed,150),color:pctUsed>=100?'#C87EA0':'#FFAA44'},
+            cta:null
+          });
+        }else if(pctUsed<=pctTime-15&&pctUsed>10){
+          insights.push({
+            kind:'good',icon:'🎯',priority:3,
+            title:`Sous-budget : ${pctUsed}% consommé à J${pctTime}%`,
+            msg:`${fmtEur(monthlyBudget-expBudgeted)} encore disponibles`,
+            bar:{pct:pctUsed,color:'#7EC8A9'},
+            cta:null
+          });
+        }
       }
     }
   }catch(e){}
@@ -1411,24 +1437,35 @@ function _computeInsights(){
       }
     });
   }catch(e){}
-  // 5) Top catégorie : delta mois vs mois
+  // 5) Top catégorie : delta mois vs mois (inclut subs projetés pour le mois courant)
   try{
-    const prevDt=new Date(sy,sm-1,1);
-    const prevMo=data.t.filter(t=>{const d=new Date(t.d);return d.getMonth()===prevDt.getMonth()&&d.getFullYear()===prevDt.getFullYear()&&t.tp==='e';});
-    const byCatA={},byCatB={};
-    thisMoTx.filter(t=>t.tp==='e').forEach(t=>{byCatA[t.c]=(byCatA[t.c]||0)+t.a;});
-    prevMo.forEach(t=>{byCatB[t.c]=(byCatB[t.c]||0)+t.a;});
-    const cats=[...new Set([...Object.keys(byCatA),...Object.keys(byCatB)])];
-    let best=null;
-    cats.forEach(c=>{const a=byCatA[c]||0,b=byCatB[c]||0;if(b<20)return;const delta=a-b,pct=Math.round(delta/b*100);if(Math.abs(pct)<25)return;if(!best||Math.abs(delta)>Math.abs(best.delta))best={cat:c,delta,pct,a,b};});
-    if(best){
-      const c=gc(best.cat);const up=best.delta>0;
-      insights.push({
-        kind:up?'warn':'good',icon:c.icon||'📊',priority:up?5:3,
-        title:`${best.cat} : ${up?'+':''}${best.pct}% vs mois dernier`,
-        msg:`${fmtEur(best.a)} ce mois · ${fmtEur(best.b)} précédent`,
-        cta:null
-      });
+    if(!isFutureMonth){
+      const prevDt=new Date(sy,sm-1,1);
+      const prevMo=data.t.filter(t=>{const d=new Date(t.d);return d.getMonth()===prevDt.getMonth()&&d.getFullYear()===prevDt.getFullYear()&&t.tp==='e';});
+      const byCatA={},byCatB={};
+      thisMoTx.filter(t=>t.tp==='e').forEach(t=>{byCatA[t.c]=(byCatA[t.c]||0)+t.a;});
+      // Ajoute les subs projetés ce mois
+      try{mSubsTx().filter(t=>t.tp==='e').forEach(t=>{byCatA[t.c]=(byCatA[t.c]||0)+t.a;});}catch(e){}
+      prevMo.forEach(t=>{byCatB[t.c]=(byCatB[t.c]||0)+t.a;});
+      // Comparaison juste : si on est en cours de mois, on ne peut pas comparer un mois incomplet à un mois complet
+      // → on compare uniquement si on est à J>=25 du mois OU si c'est un mois passé
+      const dayOfMo=now.getDate();
+      const daysInMo=new Date(sy,sm+1,0).getDate();
+      const shouldCompare=isPastMonth||(isCurrentMonth&&dayOfMo/daysInMo>=0.85);
+      if(shouldCompare){
+        const cats=[...new Set([...Object.keys(byCatA),...Object.keys(byCatB)])];
+        let best=null;
+        cats.forEach(c=>{const a=byCatA[c]||0,b=byCatB[c]||0;if(b<20)return;const delta=a-b,pct=Math.round(delta/b*100);if(Math.abs(pct)<25)return;if(!best||Math.abs(delta)>Math.abs(best.delta))best={cat:c,delta,pct,a,b};});
+        if(best){
+          const c=gc(best.cat);const up=best.delta>0;
+          insights.push({
+            kind:up?'warn':'good',icon:c.icon||'📊',priority:up?5:3,
+            title:`${best.cat} : ${up?'+':''}${best.pct}% vs mois dernier`,
+            msg:`${fmtEur(best.a)} ce mois · ${fmtEur(best.b)} précédent`,
+            cta:null
+          });
+        }
+      }
     }
   }catch(e){}
   // 6) Dépense inhabituelle (semaine)
@@ -1451,16 +1488,20 @@ function _computeInsights(){
       }
     }
   }catch(e){}
-  // 7) Taux d'épargne du mois
+  // 7) Taux d'épargne du mois — uniquement si mois complet (passé) ou courant avec >=J20
   try{
-    if(thisMoInc>500){
+    const dayOfMo=now.getDate();
+    const daysInMo=new Date(sy,sm+1,0).getDate();
+    const monthMeaningful=isPastMonth||(isCurrentMonth&&dayOfMo>=20);
+    if(monthMeaningful&&thisMoInc>500){
       const rate=Math.round((thisMoInc-thisMoExp)/thisMoInc*100);
+      const netLabel=isCurrentMonth?' (projeté)':'';
       if(rate>=30){
-        insights.push({kind:'good',icon:'🏆',priority:6,title:`Excellent taux d'épargne : ${rate}%`,msg:`${fmtEur(thisMoInc-thisMoExp)} épargnés ce mois`,cta:null});
+        insights.push({kind:'good',icon:'🏆',priority:6,title:`Excellent taux d'épargne : ${rate}%${netLabel}`,msg:`${fmtEur(thisMoInc-thisMoExp)} épargnés`,cta:null});
       }else if(rate>=20){
-        insights.push({kind:'good',icon:'⭐',priority:4,title:`Bon taux d'épargne : ${rate}%`,msg:`Tu épargnes ${fmtEur(thisMoInc-thisMoExp)} ce mois`,cta:null});
+        insights.push({kind:'good',icon:'⭐',priority:4,title:`Bon taux d'épargne : ${rate}%${netLabel}`,msg:`Tu épargnes ${fmtEur(thisMoInc-thisMoExp)}`,cta:null});
       }else if(rate<0){
-        insights.push({kind:'bad',icon:'⚠️',priority:9,title:`Dépenses > revenus ce mois`,msg:`Solde : ${fmtEur(thisMoInc-thisMoExp)}`,cta:{label:'Voir détails →',action:"navTo('history')"}});
+        insights.push({kind:'bad',icon:'⚠️',priority:9,title:`Dépenses > revenus ce mois${netLabel}`,msg:`Solde : ${fmtEur(thisMoInc-thisMoExp)}`,cta:{label:'Voir détails →',action:"navTo('history')"}});
       }
     }
   }catch(e){}
@@ -1483,18 +1524,20 @@ function _computeInsights(){
       }
     }
   }catch(e){}
-  // 9) Jours sans dépense ce mois (nouveau)
+  // 9) Jours sans dépense — uniquement mois courant (sinon n'a pas de sens)
   try{
-    const dayOfMo=now.getDate();
-    const daysWithExp=new Set(thisMoTx.filter(t=>t.tp==='e').map(t=>t.d));
-    const noSpendDays=dayOfMo-daysWithExp.size;
-    if(noSpendDays>=5){
-      insights.push({
-        kind:'good',icon:'🧘',priority:3,
-        title:`${noSpendDays} jours sans dépense ce mois`,
-        msg:`Soit ${Math.round(noSpendDays/dayOfMo*100)}% du mois en mode zéro — continue !`,
-        cta:null
-      });
+    if(isCurrentMonth){
+      const dayOfMo=now.getDate();
+      const daysWithExp=new Set(thisMoTx.filter(t=>t.tp==='e').map(t=>t.d));
+      const noSpendDays=dayOfMo-daysWithExp.size;
+      if(noSpendDays>=5){
+        insights.push({
+          kind:'good',icon:'🧘',priority:3,
+          title:`${noSpendDays} jours sans dépense ce mois`,
+          msg:`Soit ${Math.round(noSpendDays/dayOfMo*100)}% du mois en mode zéro — continue !`,
+          cta:null
+        });
+      }
     }
   }catch(e){}
   // 10) Objectif : rythme + alerte si deadline (amélioré)
@@ -1553,34 +1596,39 @@ function _computeInsights(){
       }
     }
   }catch(e){}
-  // 12) Catégorie plafond approchée (nouveau)
+  // 12) Catégorie plafond approchée — inclut subs projetés ce mois, uniquement mois courant
   try{
-    const catBudgets=data.b||{};
-    Object.keys(catBudgets).forEach(catName=>{
-      const cap=Number(catBudgets[catName])||0;
-      if(cap<=0)return;
-      const total=thisMoTx.filter(t=>t.tp==='e'&&t.c===catName).reduce((s,t)=>s+t.a,0);
-      if(total<cap*0.8)return;
-      const pct=Math.round(total/cap*100);
-      const c=gc(catName);
-      if(pct>=100){
-        insights.push({
-          kind:'bad',icon:'🚨',priority:8,
-          title:`${catName} : plafond dépassé`,
-          msg:`${fmtEur(total)} / ${fmtEur(cap)} (${pct}%)`,
-          bar:{pct:Math.min(pct,120),color:c.color||'#C87EA0'},
-          cta:null
-        });
-      }else if(pct>=85){
-        insights.push({
-          kind:'warn',icon:c.icon||'⚠️',priority:5,
-          title:`${catName} : ${pct}% du plafond`,
-          msg:`Reste ${fmtEur(cap-total)} avant la fin du mois`,
-          bar:{pct:pct,color:c.color||'#FFAA44'},
-          cta:null
-        });
-      }
-    });
+    if(isCurrentMonth){
+      const catBudgets=data.b||{};
+      let projByCat={};
+      try{mSubsTx().filter(t=>t.tp==='e').forEach(t=>{projByCat[t.c]=(projByCat[t.c]||0)+t.a;});}catch(e){}
+      Object.keys(catBudgets).forEach(catName=>{
+        const cap=Number(catBudgets[catName])||0;
+        if(cap<=0)return;
+        const manual=thisMoTx.filter(t=>t.tp==='e'&&t.c===catName).reduce((s,t)=>s+t.a,0);
+        const total=manual+(projByCat[catName]||0);
+        if(total<cap*0.8)return;
+        const pct=Math.round(total/cap*100);
+        const c=gc(catName);
+        if(pct>=100){
+          insights.push({
+            kind:'bad',icon:'🚨',priority:8,
+            title:`${catName} : plafond dépassé`,
+            msg:`${fmtEur(total)} / ${fmtEur(cap)} (${pct}%)`,
+            bar:{pct:Math.min(pct,120),color:c.color||'#C87EA0'},
+            cta:null
+          });
+        }else if(pct>=85){
+          insights.push({
+            kind:'warn',icon:c.icon||'⚠️',priority:5,
+            title:`${catName} : ${pct}% du plafond`,
+            msg:`Reste ${fmtEur(cap-total)} avant la fin du mois`,
+            bar:{pct:pct,color:c.color||'#FFAA44'},
+            cta:null
+          });
+        }
+      });
+    }
   }catch(e){}
   // 13) Patrimoine net : tendance (nouveau)
   try{
