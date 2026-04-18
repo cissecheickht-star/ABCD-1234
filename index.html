@@ -1363,17 +1363,23 @@ function _computeInsights(){
       const daysInMo=new Date(sy,sm+1,0).getDate();
       const pctTime=dayOfMo/daysInMo;
       if(pctTime>0.15&&pctTime<0.95){
-        // On extrapole uniquement les dépenses manuelles (courantes) au prorata temporel,
-        // et on ajoute les subs projetés tels quels (ils se produisent à date fixe, pas proportionnellement).
-        const manualExtrap=thisMoExpManual/pctTime;
-        const projExpTotal=manualExtrap+thisMoProjExp;
-        const projNet=thisMoInc-projExpTotal;
+        // Sépare le flux quotidien (à extrapoler) des subs déjà renouvelés (événements ponctuels, pas de répétition).
+        // Les transactions avec _subId correspondent à un renouvellement d'abonnement — on ne les extrapole pas.
+        const thisMoDailyExp=thisMoTx.filter(t=>t.tp==='e'&&!t._subId).reduce((s,t)=>s+t.a,0);
+        const thisMoSubExpAlreadyRenewed=thisMoTx.filter(t=>t.tp==='e'&&t._subId).reduce((s,t)=>s+t.a,0);
+        const dailyExtrap=thisMoDailyExp/pctTime;
+        // Total projeté = flux quotidien extrapolé + subs déjà renouvelés + subs encore à venir
+        const projExpTotal=dailyExtrap+thisMoSubExpAlreadyRenewed+thisMoProjExp;
+        // Pour les revenus : pas d'extrapolation (salaire = événement ponctuel) → on garde les revenus réels + subs projetés
+        const projIncTotal=thisMoIncManual+thisMoProjInc;
+        const projNet=projIncTotal-projExpTotal;
+        const remainDays=daysInMo-dayOfMo;
         insights.push({
           kind:projNet>=0?'good':'bad',
           icon:projNet>=0?'🧭':'⚠️',
           priority:projNet<0?9:4,
           title:projNet>=0?`Fin du mois : environ ${fmtEur(projNet)}`:`Alerte : déficit prévu ${fmtEur(projNet)}`,
-          msg:`Au rythme actuel (J${dayOfMo}/${daysInMo}) · ~${fmtEur(projExpTotal)} de dépenses`,
+          msg:`J${dayOfMo}/${daysInMo} · ~${fmtEur(projExpTotal)} dépenses · ~${fmtEur(projIncTotal)} revenus${thisMoProjExp>0||thisMoProjInc>0?' (inc. abos à venir)':''}`,
           cta:projNet<0?{label:'Voir catégories →',action:"navTo('history')"}:null
         });
       }
