@@ -3379,12 +3379,33 @@ function saveEditGoal(id){
 function openEditAsset(id){
   const a=data.assets.find(x=>x.id===id); if(!a)return;
   const catOpts=ASSET_CATS.map(c=>`<option${c===a.cat?' selected':''}>${c}</option>`).join('');
-  const mvts=(a.mouvements||[]).slice().reverse().slice(0,5);
-  const mvtHtml=mvts.length?mvts.map(m=>{
+  // Migrer les mouvements sans ID pour permettre l'édition stable
+  if(a.mouvements&&a.mouvements.length){
+    let migrated=false;
+    a.mouvements.forEach(m=>{if(!m.id){m.id=gid();migrated=true;}});
+    if(migrated)save();
+  }
+  // Tri par date décroissante (plus récent en haut)
+  const mvtsAll=(a.mouvements||[]).slice().sort((x,y)=>(y.d||'').localeCompare(x.d||''));
+  const mvtHtml=mvtsAll.length?mvtsAll.map(m=>{
     const col=m.delta>=0?'var(--green)':'var(--red)';
-    return`<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04)">
-      <div><span class="mono xs" style="color:${col}">${m.delta>=0?'+':''}${fmtEur(m.delta)}</span>${m.reason?` <span class="mono xxs" style="color:var(--dim)">· ${esc(m.reason)}</span>`:''}</div>
-      <span class="mono xxs" style="color:var(--muted)">${m.d}</span>
+    const kind=m.delta>=0?'in':'out';
+    const absVal=Math.abs(m.delta);
+    return `<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+        <div style="display:flex;gap:3px;flex-shrink:0">
+          <button type="button" onclick="_setMvtKind('${m.id}','out')" id="mvtKindOut_${m.id}" style="padding:5px 8px;border-radius:6px;border:1px solid ${kind==='out'?'rgba(200,126,160,.4)':'var(--border)'};background:${kind==='out'?'rgba(200,126,160,.18)':'transparent'};color:${kind==='out'?'var(--text)':'var(--dim)'};font-family:var(--mono);font-size:10px;font-weight:700;cursor:pointer">−</button>
+          <button type="button" onclick="_setMvtKind('${m.id}','in')" id="mvtKindIn_${m.id}" style="padding:5px 8px;border-radius:6px;border:1px solid ${kind==='in'?'rgba(126,200,169,.4)':'var(--border)'};background:${kind==='in'?'rgba(126,200,169,.18)':'transparent'};color:${kind==='in'?'var(--text)':'var(--dim)'};font-family:var(--mono);font-size:10px;font-weight:700;cursor:pointer">+</button>
+        </div>
+        <input type="hidden" id="mvtKind_${m.id}" value="${kind}">
+        <input id="mvtAmt_${m.id}" class="fi" type="text" inputmode="decimal" value="${absVal.toString().replace('.',',')}" style="flex:1;padding:6px 8px;font-size:12px;min-width:0">
+        <input id="mvtDate_${m.id}" class="fi" type="date" value="${m.d||''}" style="flex:1;padding:6px 8px;font-size:11px;min-width:0">
+      </div>
+      <input id="mvtReason_${m.id}" class="fi" type="text" value="${esc(m.reason||'')}" placeholder="Raison" style="width:100%;padding:6px 8px;font-size:11px;margin-bottom:6px">
+      <div style="display:flex;gap:6px">
+        <button onclick="_applyAssetMvtEdit('${id}','${m.id}')" style="flex:1;background:rgba(126,200,169,.15);border:1px solid rgba(126,200,169,.35);color:var(--green);font-family:var(--mono);font-size:10px;padding:5px;cursor:pointer;border-radius:6px">✓ Appliquer</button>
+        <button onclick="_delAssetMvt('${id}','${m.id}')" style="background:rgba(200,126,160,.1);border:1px solid rgba(200,126,160,.3);color:var(--pink);font-family:var(--mono);font-size:10px;padding:5px 10px;cursor:pointer;border-radius:6px">×</button>
+      </div>
     </div>`;
   }).join(''):'<div class="mono xxs" style="color:var(--muted)">Aucun mouvement</div>';
   const body=`<div class="fg">
@@ -3441,7 +3462,7 @@ function addAssetMvt(id){
   if(!rawAmt||isNaN(delta)||delta===0){toast('Montant invalide','err');return;}
   const newVal=Math.max(0,a.val+delta);
   if(!a.mouvements)a.mouvements=[];
-  a.mouvements.push({d:new Date().toISOString().slice(0,10),delta,reason,valBefore:a.val,valAfter:newVal});
+  a.mouvements.push({id:gid(),d:new Date().toISOString().slice(0,10),delta,reason,valBefore:a.val,valAfter:newVal});
   a.val=newVal;
   save();
   toast(`${delta>=0?'+':''}${fmtEur(delta)} enregistré`);
@@ -3449,6 +3470,65 @@ function addAssetMvt(id){
   closeSheet();
   setTimeout(()=>openEditAsset(id),150);
   if(cv==='patrimoine'){const m=document.getElementById('main');if(m)m.innerHTML=rPatrimoine();}
+}
+// ── Édition / suppression d'un mouvement existant ──
+function _setMvtKind(mvtId,kind){
+  const hidden=document.getElementById('mvtKind_'+mvtId);
+  const btnOut=document.getElementById('mvtKindOut_'+mvtId);
+  const btnIn=document.getElementById('mvtKindIn_'+mvtId);
+  if(!hidden||!btnOut||!btnIn)return;
+  hidden.value=kind;
+  if(kind==='in'){
+    btnIn.style.cssText='padding:5px 8px;border-radius:6px;border:1px solid rgba(126,200,169,.4);background:rgba(126,200,169,.18);color:var(--text);font-family:var(--mono);font-size:10px;font-weight:700;cursor:pointer';
+    btnOut.style.cssText='padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--dim);font-family:var(--mono);font-size:10px;font-weight:700;cursor:pointer';
+  }else{
+    btnOut.style.cssText='padding:5px 8px;border-radius:6px;border:1px solid rgba(200,126,160,.4);background:rgba(200,126,160,.18);color:var(--text);font-family:var(--mono);font-size:10px;font-weight:700;cursor:pointer';
+    btnIn.style.cssText='padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--dim);font-family:var(--mono);font-size:10px;font-weight:700;cursor:pointer';
+  }
+}
+function _applyAssetMvtEdit(assetId,mvtId){
+  const a=data.assets.find(x=>x.id===assetId);if(!a||!a.mouvements)return;
+  const m=a.mouvements.find(x=>x.id===mvtId);if(!m){toast('Mouvement introuvable','err');return;}
+  const rawAmt=document.getElementById('mvtAmt_'+mvtId)?.value?.trim().replace(/[\s\u202f\u00a0]/g,'').replace(',','.');
+  const kind=document.getElementById('mvtKind_'+mvtId)?.value||'out';
+  const newDate=document.getElementById('mvtDate_'+mvtId)?.value||m.d;
+  const newReason=document.getElementById('mvtReason_'+mvtId)?.value?.trim()||'';
+  const parsed=parseFloat(rawAmt||'');
+  if(isNaN(parsed)||parsed<=0){toast('Montant invalide','err');return;}
+  const newDelta=kind==='in'?Math.abs(parsed):-Math.abs(parsed);
+  const oldDelta=m.delta;
+  const diff=newDelta-oldDelta;
+  // Ajuste la valeur courante de l'actif par la différence
+  const newAssetVal=Math.max(0,a.val+diff);
+  if(newAssetVal!==a.val+diff){
+    if(!confirm(`Cette modification rendrait la valeur négative (${fmtEur(a.val+diff)}). Forcer à 0 ?`))return;
+  }
+  m.delta=newDelta;
+  m.d=newDate;
+  m.reason=newReason;
+  // Les valBefore/valAfter de ce mouvement ne sont plus strictement exacts historiquement,
+  // mais on les met à jour pour refléter le nouvel état courant approximatif
+  m.valAfter=newAssetVal;
+  a.val=newAssetVal;
+  save();
+  toast('Mouvement modifié');
+  closeSheet();
+  setTimeout(()=>openEditAsset(assetId),150);
+  if(cv==='patrimoine'){const m2=document.getElementById('main');if(m2)m2.innerHTML=rPatrimoine();}
+}
+function _delAssetMvt(assetId,mvtId){
+  const a=data.assets.find(x=>x.id===assetId);if(!a||!a.mouvements)return;
+  const m=a.mouvements.find(x=>x.id===mvtId);if(!m)return;
+  if(!confirm(`Supprimer ce mouvement (${m.delta>=0?'+':''}${fmtEur(m.delta)}${m.reason?' · '+m.reason:''}) ?\n\nLa valeur de l'actif sera ${m.delta>=0?'diminuée':'augmentée'} en conséquence.`))return;
+  // Reverse son impact : a.val -= delta
+  const newAssetVal=Math.max(0,a.val-m.delta);
+  a.val=newAssetVal;
+  a.mouvements=a.mouvements.filter(x=>x.id!==mvtId);
+  save();
+  toast('Mouvement supprimé');
+  closeSheet();
+  setTimeout(()=>openEditAsset(assetId),150);
+  if(cv==='patrimoine'){const m2=document.getElementById('main');if(m2)m2.innerHTML=rPatrimoine();}
 }
 function saveEditAsset(id){
   const a=data.assets.find(x=>x.id===id); if(!a)return;
