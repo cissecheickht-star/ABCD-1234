@@ -972,7 +972,7 @@ function updateHeader(){document.getElementById('mLabel').textContent=MSH[sm]+' 
     sx=e.touches[0].clientX;sy2=e.touches[0].clientY;
     const t=e.target;
     // Skip on interactive elements, swipe-to-delete, sheets, calendar grid
-    skip=!!(t.closest('input,textarea,select,.sheet,.cal-grid,.cal-day,#importPreview,.modal,[contenteditable],.tx-swipe-wrap'))
+    skip=!!(t.closest('input,textarea,select,.sheet,.cal-grid,.cal-day,#importPreview,.modal,[contenteditable],.tx-swipe-wrap,.insights-scroll,.dash-goals-scroll'))
       || cv==='calendar' || cv==='import' || cv==='add';
   },{passive:true});
   document.addEventListener('touchend',e=>{
@@ -2924,11 +2924,26 @@ function openEditSub(id){
   const todayISO=new Date().toISOString().slice(0,10);
   const hist=(s.priceHistory||[]).slice().sort((a,b)=>(b.effectiveFrom||'').localeCompare(a.effectiveFrom||''));
   const histHtml=hist.length?`<div style="background:rgba(255,255,255,.03);border-radius:var(--Rs);padding:10px;margin-top:4px">
-      <div class="card-t" style="margin-bottom:6px;font-size:10px">Historique des montants</div>
-      ${hist.map(h=>`<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04)">
-        <span class="mono xs" style="color:var(--text)">${fmtEur(h.a)}</span>
-        <span class="mono xxs" style="color:var(--muted)">depuis ${h.effectiveFrom||'—'}</span>
-      </div>`).join('')}
+      <div class="card-t" style="margin-bottom:8px;font-size:10px;display:flex;justify-content:space-between;align-items:center">Historique des montants
+        <span class="mono xxs" style="color:var(--muted);font-weight:400">${hist.length} entrée${hist.length>1?'s':''}</span>
+      </div>
+      ${hist.map((h,i)=>{
+        const origKey=h.effectiveFrom||'';
+        const isLatest=i===0;
+        return `<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+          <div style="display:flex;gap:6px;align-items:center">
+            <input id="histAmt_${i}" class="fi" type="text" inputmode="decimal" value="${h.a.toString().replace('.',',')}" style="flex:1;padding:6px 8px;font-size:12px">
+            <span class="mono xxs" style="color:var(--muted);white-space:nowrap">depuis</span>
+            <input id="histDate_${i}" class="fi" type="date" value="${origKey}" style="flex:1;padding:6px 8px;font-size:11px">
+          </div>
+          <div style="display:flex;gap:6px;margin-top:6px">
+            <button onclick="_applyHistEdit('${s.id}','${esc(origKey)}')" style="flex:1;background:rgba(126,200,169,.15);border:1px solid rgba(126,200,169,.35);color:var(--green);font-family:var(--mono);font-size:10px;padding:6px;cursor:pointer;border-radius:6px">✓ Appliquer</button>
+            <button onclick="_delHistEntry('${s.id}','${esc(origKey)}')" style="background:rgba(200,126,160,.1);border:1px solid rgba(200,126,160,.3);color:var(--pink);font-family:var(--mono);font-size:10px;padding:6px 10px;cursor:pointer;border-radius:6px" title="Supprimer cette entrée">×</button>
+          </div>
+          ${isLatest?'<div class="mono xxs" style="color:var(--muted);margin-top:4px">↳ Montant actuel</div>':''}
+        </div>`;
+      }).join('')}
+      <div class="mono xxs" style="color:var(--muted);margin-top:6px;line-height:1.5">Modifie un montant ou une date passée pour corriger un historique erroné. Les transactions déjà enregistrées ne sont pas affectées.</div>
     </div>`:'';
   const body=`<div class="fg">
     <div style="margin-bottom:12px">
@@ -2971,6 +2986,51 @@ function _onSubAmtChange(subId){
   if(!wrap)return;
   const changed=!isNaN(parsed)&&Math.abs(Math.abs(parsed)-s.a)>=0.01;
   wrap.style.display=changed?'block':'none';
+}
+function _applyHistEdit(subId,origDate){
+  const s=data.s.find(x=>x.id===subId);if(!s||!s.priceHistory)return;
+  // Retrouver l'index dans l'ordre d'affichage (desc) puis mapper à priceHistory
+  const sortedDesc=[...s.priceHistory].sort((a,b)=>(b.effectiveFrom||'').localeCompare(a.effectiveFrom||''));
+  const idxDesc=sortedDesc.findIndex(h=>(h.effectiveFrom||'')===origDate);
+  if(idxDesc<0)return;
+  const amtEl=document.getElementById('histAmt_'+idxDesc);
+  const dateEl=document.getElementById('histDate_'+idxDesc);
+  if(!amtEl||!dateEl)return;
+  const newAmt=parseInput(amtEl.value);
+  const newDate=dateEl.value;
+  if(isNaN(newAmt)||!newAmt||!newDate){toast('Montant ou date invalide','err');return;}
+  // Trouver l'entrée originale dans s.priceHistory par sa date d'effet
+  const entry=s.priceHistory.find(h=>(h.effectiveFrom||'')===origDate);
+  if(!entry){toast('Entrée introuvable','err');return;}
+  // Vérifier qu'on n'écrase pas une autre entrée existante avec la nouvelle date
+  if(newDate!==origDate&&s.priceHistory.some(h=>h!==entry&&h.effectiveFrom===newDate)){
+    toast('Une autre entrée existe déjà à cette date','err');return;
+  }
+  entry.a=Math.abs(newAmt);
+  entry.effectiveFrom=newDate;
+  s.priceHistory.sort((a,b)=>(a.effectiveFrom||'').localeCompare(b.effectiveFrom||''));
+  // Sync s.a avec la plus récente entrée
+  const latest=s.priceHistory[s.priceHistory.length-1];
+  s.a=latest.a;
+  save();
+  toast('Historique mis à jour');
+  closeSheet();
+  setTimeout(()=>openEditSub(subId),150);
+}
+function _delHistEntry(subId,origDate){
+  const s=data.s.find(x=>x.id===subId);if(!s||!s.priceHistory)return;
+  if(!confirm(`Supprimer l'entrée du ${origDate||'(sans date)'} ?`))return;
+  s.priceHistory=s.priceHistory.filter(h=>(h.effectiveFrom||'')!==origDate);
+  if(s.priceHistory.length){
+    s.priceHistory.sort((a,b)=>(a.effectiveFrom||'').localeCompare(b.effectiveFrom||''));
+    s.a=s.priceHistory[s.priceHistory.length-1].a;
+  }else{
+    delete s.priceHistory;
+  }
+  save();
+  toast('Entrée supprimée');
+  closeSheet();
+  setTimeout(()=>openEditSub(subId),150);
 }
 function saveEditSub(id){
   const s=data.s.find(x=>x.id===id); if(!s)return;
