@@ -753,8 +753,8 @@ function getKpiPrefs(){try{return{...DEFAULT_KPIS,...JSON.parse(localStorage.get
 function saveKpiPrefs(p){localStorage.setItem('kpiPrefs',JSON.stringify(p));}
 
 function loadData(){
-  try{const d=JSON.parse(localStorage.getItem('bpro2'));if(d){if(!d.s)d.s=[];if(!d.goals)d.goals=[];if(!d.assets)d.assets=[];if(!d.debts)d.debts=[];if(!d.stocks)d.stocks=[];return d;}}catch(e){}
-  return {t:[],b:{},s:[],goals:[],assets:[],debts:[],stocks:[]};
+  try{const d=JSON.parse(localStorage.getItem('bpro2'));if(d){if(!d.s)d.s=[];if(!d.goals)d.goals=[];if(!d.assets)d.assets=[];if(!d.debts)d.debts=[];if(!d.stocks)d.stocks=[];if(!d.creances)d.creances=[];return d;}}catch(e){}
+  return {t:[],b:{},s:[],goals:[],assets:[],debts:[],stocks:[],creances:[]};
 }
 let data=loadData();
 function save(){
@@ -1544,7 +1544,11 @@ function rPatrimoine(){
   const totalA=assets.reduce((s,a)=>s+a.val,0)+totalStocks,totalD=debts.reduce((s,d)=>s+d.val,0),nw=totalA-totalD;
   const ds=calcDebtStats();
   const assetOpts=ASSET_CATS.map(c=>`<option>${c}</option>`).join(''),debtOpts=DEBT_CATS.map(c=>`<option>${c}</option>`).join('');
-  const assetRows=assets.length===0?'<div class="empty">Aucun actif</div>':assets.map(a=>`<div class="asset-row"><div><div class="asset-nm">${esc(a.name)}</div><div class="asset-cat">${a.cat}</div></div><div style="display:flex;align-items:center;gap:6px;flex-shrink:0"><span class="mono sm g">${fmtEur(a.val)}</span><button class="sab ed" onclick="openEditAsset('${a.id}')">✎</button><button class="tx-del" onclick="delAsset('${a.id}')">×</button></div></div>`).join('');
+  const assetRows=assets.length===0?'<div class="empty">Aucun actif</div>':assets.map(a=>{
+  const lastMvt=(a.mouvements||[]).slice(-1)[0];
+  const mvtTag=lastMvt?`<span class="mono xxs" style="color:${lastMvt.delta>=0?'var(--green)':'var(--red)'};margin-left:4px">${lastMvt.delta>=0?'+':''}${fmtEur(lastMvt.delta)}${lastMvt.reason?` · ${esc(lastMvt.reason)}`:''}</span>`:'';
+  return`<div class="asset-row"><div><div class="asset-nm">${esc(a.name)}</div><div class="asset-cat">${a.cat}${mvtTag}</div></div><div style="display:flex;align-items:center;gap:6px;flex-shrink:0"><span class="mono sm g">${fmtEur(a.val)}</span><button class="sab ed" onclick="openEditAsset('${a.id}')">✎</button><button class="tx-del" onclick="delAsset('${a.id}')">×</button></div></div>`;
+}).join('');
   const debtRows=debts.length===0?'<div class="empty">Aucune dette</div>':debts.map(d=>{
     const borrowed=d.borrowed||d.val;const paid=borrowed-d.val;const pct=borrowed>0?Math.round(paid/borrowed*100):0;
     const endStr=d.endDate?` · fin ${d.endDate}`:'';
@@ -1568,7 +1572,54 @@ function rPatrimoine(){
     const mkt=st.market&&st.market!=='Autre'?` <span class="mono xxs" style="color:var(--blue);background:rgba(100,200,200,.1);padding:1px 4px;border-radius:3px">${esc(st.market)}</span>`:'';
     return`<div class="asset-row"><div><div class="asset-nm">${esc(st.name)}${st.ticker?` <span class="mono xxs" style="color:var(--muted)">${esc(st.ticker)}</span>`:''}${mkt}</div><div class="asset-cat">${st.qty} × ${fmtEur(uPrice)}${fcfaNote}${pnlPct!==null?` · <span style="color:${pnl>=0?'var(--green)':'var(--red)'}">${pnl>=0?'+':''}${pnlPct}%</span>`:''}</div></div><div style="display:flex;align-items:center;gap:6px;flex-shrink:0"><span class="mono sm g">${fmtEur(val)}</span><button class="sab ed" onclick="openAddShares('${st.id}')" title="Renforcer" style="font-size:10px">＋</button><button class="sab ed" onclick="openEditStock('${st.id}')">✎</button><button class="tx-del" onclick="delStock('${st.id}')">×</button></div></div>`;
   }).join('');
-  return `<div class="kpis"><div class="kpi"><div class="kpi-l">Total actifs</div><div class="kpi-v g">${fmtEur(totalA)}</div></div><div class="kpi"><div class="kpi-l">Reste à payer</div><div class="kpi-v r">−${fmtEur(totalD)}</div></div>${debtKpis}<div class="kpi w3"><div class="kpi-l">Patrimoine net</div><div class="kpi-v" style="color:${nw>=0?'var(--gold)':'var(--red)'}">${fmtEur(nw)}</div></div></div><div class="card"><div class="card-t">Actifs</div>${assetRows}${pieHtml}</div><div class="card"><div class="card-t">Actions · Portefeuille</div>${(()=>{const ts=parseInt(localStorage.getItem('_brvmLastRefresh')||'0');const hasBrvm=stocks.some(s=>s.market==='BRVM');const dateStr=ts?new Date(ts).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'jamais';return hasBrvm?`<div class="mono xxs" style="color:var(--dim);margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">Dernière MAJ : ${dateStr}<button id="brvmRefreshBtn" onclick="_manualRefreshBRVM()" style="background:none;border:1px solid var(--dim);color:var(--dim);border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;transition:all .2s">↻ Actualiser</button></div>`:'';})()}${stocks.length?`<div style="display:flex;justify-content:space-between;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.04)"><span class="mono xs" style="color:var(--dim)">Total actions</span><span class="mono sm g">${fmtEur(totalStocks)}</span></div>`:''} ${stockRows}</div><div class="card"><div class="card-t">Dettes & crédits</div>${debtRows}</div><div class="card"><div class="card-t">Ajouter un actif</div><div class="fg"><label class="fl">Nom<input id="aName" class="fi" type="text" placeholder="Livret A, Actions, Appartement…"></label><div class="fr2"><label class="fl">Valeur (${curSymbol()})<input id="aVal" class="fi" type="text" inputmode="decimal" placeholder="0"></label><label class="fl">Catégorie<select id="aCat" class="fs">${assetOpts}</select></label></div><button class="submit" style="background:linear-gradient(135deg,var(--green),#96D8B8)" onclick="addAsset()">Ajouter actif →</button></div></div><div class="card"><div class="card-t">Ajouter une dette / crédit</div><div class="fg"><label class="fl">Nom<input id="dName" class="fi" type="text" placeholder="Prêt immobilier, Crédit auto…"></label><div class="fr2"><label class="fl">Reste à payer (${curSymbol()})<input id="dVal" class="fi" type="text" inputmode="decimal" placeholder="0"></label><label class="fl">Montant emprunté (${curSymbol()})<input id="dBorrowed" class="fi" type="text" inputmode="decimal" placeholder="Total initial"></label></div><div class="fr3"><label class="fl">Mensualité (${curSymbol()})<input id="dMens" class="fi" type="text" inputmode="decimal" placeholder="0"></label><label class="fl">Taux (%/an)<input id="dRate" class="fi" type="number" inputmode="decimal" placeholder="3.5" step="0.1"></label><label class="fl">Date de fin<input id="dEnd" class="fi" type="month" placeholder="YYYY-MM"></label></div><label class="fl">Catégorie<select id="dCat" class="fs">${debtOpts}</select></label><button class="submit" style="background:linear-gradient(135deg,var(--pink),#D896B8)" onclick="addDebt()">Ajouter dette →</button></div></div><div class="card"><div class="card-t">Ajouter une action</div><div class="fg"><label class="fl">Nom / Entreprise<input id="stName" class="fi" type="text" placeholder="Apple, SONATEL, LVMH…"></label><div class="fr2"><label class="fl">Marché<select id="stMarket" class="fs" onchange="toggleBrvmTicker()"><option value="Euronext">Euronext (Paris)</option><option value="BRVM">BRVM (Abidjan)</option><option value="NYSE">NYSE</option><option value="NASDAQ">NASDAQ</option><option value="LSE">LSE (Londres)</option><option value="Autre">Autre</option></select></label><label class="fl" id="stTickerWrap">Ticker<input id="stTicker" class="fi" type="text" placeholder="AAPL, SNTS, MC.PA…" style="text-transform:uppercase"></label></div><div class="fr2"><label class="fl" id="stPrixLabel">Quantité<input id="stQty" class="fi" type="text" inputmode="decimal" placeholder="10"></label><label class="fl" id="stPrixWrap">Prix actuel (${curSymbol()})<input id="stPrix" class="fi" type="text" inputmode="decimal" placeholder="150.00"></label></div><label class="fl" id="stPrixAchatWrap">Prix d'achat (${curSymbol()})<input id="stPrixAchat" class="fi" type="text" inputmode="decimal" placeholder="120.00"></label><button class="submit" style="background:linear-gradient(135deg,var(--blue),#7EC8C8)" onclick="addStock()">Ajouter action →</button></div></div><div class="card"><div class="card-t">Cotations en temps réel</div><div class="fg"><label class="fl">Clé API Alpha Vantage <span class="mono xxs" style="color:var(--muted)">(gratuit sur alphavantage.co)</span><input id="stockApiKey" class="fi" type="text" placeholder="Votre clé API…" value="${localStorage.getItem('stockApiKey')||''}"></label><div style="display:flex;gap:8px"><button class="submit" style="flex:1;background:linear-gradient(135deg,var(--blue),#7EC8C8)" onclick="saveStockApiKey()">Sauver clé</button><button class="submit" style="flex:1;background:linear-gradient(135deg,var(--green),#96D8B8)" onclick="refreshAllStockPrices()">↻ Rafraîchir les prix</button></div></div></div>`;
+  // ── Créances ── (isolation totale — ni solde ni patrimoine)
+  const creances=data.creances||[];
+  const totalCreances=creances.filter(c=>c.statut!=='soldé').reduce((s,c)=>s+(c.restant||c.montant),0);
+  const creanceRows=creances.length===0?'<div class="empty">Aucune créance</div>':creances.map(c=>{
+    const restant=c.restant!=null?c.restant:c.montant;
+    const rembourse=c.montant-restant;
+    const pct=c.montant>0?Math.round(rembourse/c.montant*100):0;
+    const statusCol=c.statut==='soldé'?'var(--green)':c.statut==='partiel'?'#ffaa44':'var(--blue)';
+    const statusLabel=c.statut==='soldé'?'✓ Soldé':c.statut==='partiel'?'⧗ Partiel':'⏳ En attente';
+    const dateStr=c.date?` · prêté le ${c.date}`:'';
+    const noteStr=c.note?`<div class="mono xxs" style="color:var(--muted);margin-top:2px">${esc(c.note)}</div>`:'';
+    const payInput=c.statut!=='soldé'?`<div style="display:flex;gap:6px;margin-top:8px"><input type="text" inputmode="decimal" id="cpr_${c.id}" class="fi" style="flex:1;padding:8px;font-size:12px" placeholder="Remboursement reçu…"><button onclick="payCreance('${c.id}')" style="background:var(--green);border:none;color:var(--bg);font-family:var(--mono);font-size:10px;font-weight:700;padding:8px 12px;cursor:pointer;border-radius:6px;white-space:nowrap;flex-shrink:0">✓ Encaisser</button></div>`:'';
+    return`<div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+      <div class="row-between" style="margin-bottom:4px">
+        <div>
+          <div class="asset-nm">${esc(c.debiteur)}</div>
+          <div class="asset-cat">${fmtEur(c.montant)} prêté${dateStr}</div>
+          ${noteStr}
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+          <span class="mono xs" style="color:${statusCol};background:${statusCol}22;padding:3px 8px;border-radius:10px;font-size:9px;font-weight:700">${statusLabel}</span>
+          <button class="tx-del" onclick="delCreance('${c.id}')">×</button>
+        </div>
+      </div>
+      ${c.montant>0&&c.statut!=='soldé'?`<div class="bar-bg" style="margin-bottom:4px"><div class="bar-fill" style="width:${pct}%;background:var(--green)"></div></div><div style="display:flex;justify-content:space-between"><span class="mono xxs" style="color:var(--dim)">${fmtEur(rembourse)} encaissé (${pct}%)</span><span class="mono xxs" style="color:var(--blue)">${fmtEur(restant)} restant</span></div>`:''}
+      ${payInput}
+    </div>`;
+  }).join('');
+  const creanceSection=`<div class="card" style="border-left:3px solid var(--blue)">
+    <div class="card-t" style="display:flex;justify-content:space-between;align-items:center">
+      Créances 📋
+      ${creances.filter(c=>c.statut!=='soldé').length>0?`<span class="mono xs" style="color:var(--blue)">${fmtEur(totalCreances)} à recouvrer</span>`:''}
+    </div>
+    <div class="mono xxs" style="color:var(--muted);margin-bottom:10px;line-height:1.5">Argent prêté à suivre — isolé du solde et du patrimoine</div>
+    ${creanceRows}
+    <div class="fg" style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.05)">
+      <div class="fr2">
+        <label class="fl">Débiteur<input id="crDeb" class="fi" type="text" placeholder="Nom ou prénom"></label>
+        <label class="fl">Montant (${curSymbol()})<input id="crAmt" class="fi" type="text" inputmode="decimal" placeholder="0"></label>
+      </div>
+      <div class="fr2">
+        <label class="fl">Date du prêt<input id="crDate" class="fi" type="date" value="${new Date().toISOString().slice(0,10)}"></label>
+        <label class="fl">Note (optionnel)<input id="crNote" class="fi" type="text" placeholder="Raison, contexte…"></label>
+      </div>
+      <button class="submit" style="background:linear-gradient(135deg,var(--blue),#7EC8C8)" onclick="addCreance()">Ajouter créance →</button>
+    </div>
+  </div>`;
+  return `<div class="kpis"><div class="kpi"><div class="kpi-l">Total actifs</div><div class="kpi-v g">${fmtEur(totalA)}</div></div><div class="kpi"><div class="kpi-l">Reste à payer</div><div class="kpi-v r">−${fmtEur(totalD)}</div></div>${debtKpis}<div class="kpi w3"><div class="kpi-l">Patrimoine net</div><div class="kpi-v" style="color:${nw>=0?'var(--gold)':'var(--red)'}">${fmtEur(nw)}</div></div></div><div class="card"><div class="card-t">Actifs</div>${assetRows}${pieHtml}</div><div class="card"><div class="card-t">Actions · Portefeuille</div>${(()=>{const ts=parseInt(localStorage.getItem('_brvmLastRefresh')||'0');const hasBrvm=stocks.some(s=>s.market==='BRVM');const dateStr=ts?new Date(ts).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'jamais';return hasBrvm?`<div class="mono xxs" style="color:var(--dim);margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">Dernière MAJ : ${dateStr}<button id="brvmRefreshBtn" onclick="_manualRefreshBRVM()" style="background:none;border:1px solid var(--dim);color:var(--dim);border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;transition:all .2s">↻ Actualiser</button></div>`:'';})()}${stocks.length?`<div style="display:flex;justify-content:space-between;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.04)"><span class="mono xs" style="color:var(--dim)">Total actions</span><span class="mono sm g">${fmtEur(totalStocks)}</span></div>`:''} ${stockRows}</div><div class="card"><div class="card-t">Dettes & crédits</div>${debtRows}</div><div class="card"><div class="card-t">Ajouter un actif</div><div class="fg"><label class="fl">Nom<input id="aName" class="fi" type="text" placeholder="Livret A, Actions, Appartement…"></label><div class="fr2"><label class="fl">Valeur (${curSymbol()})<input id="aVal" class="fi" type="text" inputmode="decimal" placeholder="0"></label><label class="fl">Catégorie<select id="aCat" class="fs">${assetOpts}</select></label></div><button class="submit" style="background:linear-gradient(135deg,var(--green),#96D8B8)" onclick="addAsset()">Ajouter actif →</button></div></div><div class="card"><div class="card-t">Ajouter une dette / crédit</div><div class="fg"><label class="fl">Nom<input id="dName" class="fi" type="text" placeholder="Prêt immobilier, Crédit auto…"></label><div class="fr2"><label class="fl">Reste à payer (${curSymbol()})<input id="dVal" class="fi" type="text" inputmode="decimal" placeholder="0"></label><label class="fl">Montant emprunté (${curSymbol()})<input id="dBorrowed" class="fi" type="text" inputmode="decimal" placeholder="Total initial"></label></div><div class="fr3"><label class="fl">Mensualité (${curSymbol()})<input id="dMens" class="fi" type="text" inputmode="decimal" placeholder="0"></label><label class="fl">Taux (%/an)<input id="dRate" class="fi" type="number" inputmode="decimal" placeholder="3.5" step="0.1"></label><label class="fl">Date de fin<input id="dEnd" class="fi" type="month" placeholder="YYYY-MM"></label></div><label class="fl">Catégorie<select id="dCat" class="fs">${debtOpts}</select></label><button class="submit" style="background:linear-gradient(135deg,var(--pink),#D896B8)" onclick="addDebt()">Ajouter dette →</button></div></div><div class="card"><div class="card-t">Ajouter une action</div><div class="fg"><label class="fl">Nom / Entreprise<input id="stName" class="fi" type="text" placeholder="Apple, SONATEL, LVMH…"></label><div class="fr2"><label class="fl">Marché<select id="stMarket" class="fs" onchange="toggleBrvmTicker()"><option value="Euronext">Euronext (Paris)</option><option value="BRVM">BRVM (Abidjan)</option><option value="NYSE">NYSE</option><option value="NASDAQ">NASDAQ</option><option value="LSE">LSE (Londres)</option><option value="Autre">Autre</option></select></label><label class="fl" id="stTickerWrap">Ticker<input id="stTicker" class="fi" type="text" placeholder="AAPL, SNTS, MC.PA…" style="text-transform:uppercase"></label></div><div class="fr2"><label class="fl" id="stPrixLabel">Quantité<input id="stQty" class="fi" type="text" inputmode="decimal" placeholder="10"></label><label class="fl" id="stPrixWrap">Prix actuel (${curSymbol()})<input id="stPrix" class="fi" type="text" inputmode="decimal" placeholder="150.00"></label></div><label class="fl" id="stPrixAchatWrap">Prix d'achat (${curSymbol()})<input id="stPrixAchat" class="fi" type="text" inputmode="decimal" placeholder="120.00"></label><button class="submit" style="background:linear-gradient(135deg,var(--blue),#7EC8C8)" onclick="addStock()">Ajouter action →</button></div></div><div class="card"><div class="card-t">Cotations en temps réel</div><div class="fg"><label class="fl">Clé API Alpha Vantage <span class="mono xxs" style="color:var(--muted)">(gratuit sur alphavantage.co)</span><input id="stockApiKey" class="fi" type="text" placeholder="Votre clé API…" value="${localStorage.getItem('stockApiKey')||''}"></label><div style="display:flex;gap:8px"><button class="submit" style="flex:1;background:linear-gradient(135deg,var(--blue),#7EC8C8)" onclick="saveStockApiKey()">Sauver clé</button><button class="submit" style="flex:1;background:linear-gradient(135deg,var(--green),#96D8B8)" onclick="refreshAllStockPrices()">↻ Rafraîchir les prix</button></div></div></div>${creanceSection}`;
 }
 function toggleBrvmTicker(){
   const mkt=document.getElementById('stMarket')?.value;
@@ -1677,6 +1728,41 @@ function openAddShares(id){
   });
 }
 function delStock(id){if(!confirm('Supprimer ?'))return;data.stocks=data.stocks.filter(x=>x.id!==id);save();render();}
+
+// ═══════════════════════════════════════════════════════════
+// CRÉANCES (isolées — n'affectent ni solde ni patrimoine)
+// ═══════════════════════════════════════════════════════════
+function addCreance(){
+  const debiteur=document.getElementById('crDeb')?.value?.trim();
+  const montant=parseInput(document.getElementById('crAmt')?.value);
+  const date=document.getElementById('crDate')?.value||new Date().toISOString().slice(0,10);
+  const note=document.getElementById('crNote')?.value?.trim()||'';
+  if(!debiteur||!montant||isNaN(montant)||montant<=0){toast('Débiteur et montant requis','err');return;}
+  if(!data.creances)data.creances=[];
+  data.creances.push({id:gid(),debiteur,montant,restant:montant,date,note,statut:'attente',payments:[]});
+  save();
+  const m=document.getElementById('main');if(m&&cv==='patrimoine')m.innerHTML=rPatrimoine();
+  toast('Créance ajoutée ✓');
+}
+function payCreance(id){
+  const c=(data.creances||[]).find(x=>x.id===id);if(!c)return;
+  const amt=parseInput(document.getElementById('cpr_'+id)?.value);
+  if(!amt||isNaN(amt)||amt<=0){toast('Montant invalide','err');return;}
+  c.restant=Math.max((c.restant||c.montant)-amt,0);
+  c.payments=c.payments||[];
+  c.payments.push({d:new Date().toISOString().slice(0,10),a:amt});
+  c.statut=c.restant<=0?'soldé':'partiel';
+  save();
+  const m=document.getElementById('main');if(m&&cv==='patrimoine')m.innerHTML=rPatrimoine();
+  toast(c.statut==='soldé'?'Créance soldée ! 🎉':'Encaissement enregistré');
+}
+function delCreance(id){
+  if(!confirm('Supprimer cette créance ?'))return;
+  data.creances=(data.creances||[]).filter(x=>x.id!==id);
+  save();
+  const m=document.getElementById('main');if(m&&cv==='patrimoine')m.innerHTML=rPatrimoine();
+}
+
 function openEditStock(id){
   const st=(data.stocks||[]).find(x=>x.id===id);if(!st)return;
   const mkOpts=['Euronext','BRVM','NYSE','NASDAQ','LSE','Autre'].map(m=>`<option value="${m}"${m===(st.market||'Autre')?' selected':''}>${m}</option>`).join('');
@@ -1991,7 +2077,23 @@ function rHistory(){
   const subCount=txs.length-realCount;
   const subtitle=subCount>0?` (dont ${subCount} abo${subCount>1?'s':''})` :'';
   let filtered=[...txs];
-  if(_histFilter.q){const q=_histFilter.q.toLowerCase();filtered=filtered.filter(t=>t.lb.toLowerCase().includes(q)||t.c.toLowerCase().includes(q));}
+  if(_histFilter.q){
+    const q=_histFilter.q.toLowerCase().trim();
+    const qNum=parseFloat(q.replace(',','.'));
+    const isAmtQuery=!isNaN(qNum)&&/^-?[\d.,]+$/.test(q);
+    filtered=filtered.filter(t=>{
+      if(t.lb.toLowerCase().includes(q)||t.c.toLowerCase().includes(q))return true;
+      if(isAmtQuery){
+        // Correspond si le montant contient la chaîne saisie (ex: "52" matche 52.84 et 152)
+        const aStr=t.a.toFixed(2).replace('.',',');
+        const aStr2=t.a.toFixed(2);
+        if(aStr.includes(q.replace('.',','))||aStr2.includes(q.replace(',','.')))return true;
+        // Correspond exact (tolérance 0.01)
+        if(Math.abs(t.a-Math.abs(qNum))<0.01)return true;
+      }
+      return false;
+    });
+  }
   if(_histFilter.cat)filtered=filtered.filter(t=>t.c===_histFilter.cat);
   if(_histFilter.tp)filtered=filtered.filter(t=>t.tp===_histFilter.tp);
   const sorted=filtered.sort((a,b)=>b.d.localeCompare(a.d));
@@ -2001,7 +2103,7 @@ function rHistory(){
   // Search bar + filter pills — Glass-Swiss style
   const filterBar=`<div style="margin-bottom:10px">
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
-      <input class="fi" type="text" placeholder="🔍 Recherche" value="${esc(_histFilter.q)}" oninput="_histFilter.q=this.value;reRenderHistory()" style="flex:1;padding:10px 14px;font-size:13px;border-radius:var(--Rs)">
+      <input class="fi" type="text" placeholder="🔍 Libellé, catégorie ou montant…" value="${esc(_histFilter.q)}" oninput="_histFilter.q=this.value;reRenderHistory()" style="flex:1;padding:10px 14px;font-size:13px;border-radius:var(--Rs)">
       <button class="bulk-btn" onclick="exportCSV()" style="font-size:9px;padding:8px 10px;flex-shrink:0;border-radius:var(--Rx)">📥</button>
     </div>
     <div class="hist-pills">
@@ -2048,6 +2150,9 @@ function rHistory(){
         const cat=gc(t.c),isInc=t.tp==='i';
         const tags=tagsHtml(t.id);
         const tagBtn=` <span class="tag" onclick="event.stopPropagation();promptTag('${t.id}')" style="opacity:.5;cursor:pointer;font-size:9px">+tag</span>`;
+        const _q=_histFilter.q.trim();const _qn=parseFloat(_q.replace(',','.'));
+        const _amtHit=_q&&!isNaN(_qn)&&/^-?[\d.,]+$/.test(_q)&&(t.a.toFixed(2).includes(_q.replace(',','.'))||Math.abs(t.a-Math.abs(_qn))<0.01);
+        const _amtHtml=_amtHit?'<mark class="hl">'+(isInc?'+':'−')+fmtEur(t.a)+'</mark>':(isInc?'+':'−')+fmtEur(t.a);
         txHtml+=`<div class="tx-swipe-wrap" data-txid="${t.id}">
           <div class="tx" onclick="openEditTx('${t.id}')" style="animation-delay:${idx*.02}s;cursor:pointer">
             ${logoHtml({...t,color:cat.color},'tx-logo','tx-fb')}
@@ -2055,7 +2160,7 @@ function rHistory(){
               <div class="tx-lb">${_histFilter.q?_hl(t.lb,_histFilter.q):esc(t.lb)}</div>
               <div class="tx-mt">${t.c}${tags?' '+tags:''}${tagBtn}</div>
             </div>
-            <div class="tx-am ${isInc?'g':'p'}">${isInc?'+':'−'}${fmtEur(t.a)}</div>
+            <div class="tx-am ${isInc?'g':'p'}">${_amtHtml}</div>
           </div>
           <div class="tx-swipe-action"><button class="tx-swipe-del" onclick="delTx('${t.id}')">🗑</button></div>
         </div>`;
@@ -2564,23 +2669,66 @@ function saveEditGoal(id){
 function openEditAsset(id){
   const a=data.assets.find(x=>x.id===id); if(!a)return;
   const catOpts=ASSET_CATS.map(c=>`<option${c===a.cat?' selected':''}>${c}</option>`).join('');
+  const mvts=(a.mouvements||[]).slice().reverse().slice(0,5);
+  const mvtHtml=mvts.length?mvts.map(m=>{
+    const col=m.delta>=0?'var(--green)':'var(--red)';
+    return`<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+      <div><span class="mono xs" style="color:${col}">${m.delta>=0?'+':''}${fmtEur(m.delta)}</span>${m.reason?` <span class="mono xxs" style="color:var(--dim)">· ${esc(m.reason)}</span>`:''}</div>
+      <span class="mono xxs" style="color:var(--muted)">${m.d}</span>
+    </div>`;
+  }).join(''):'<div class="mono xxs" style="color:var(--muted)">Aucun mouvement</div>';
   const body=`<div class="fg">
     <label class="fl">Nom<input id="eaName" class="fi" type="text" value="${esc(a.name)}"></label>
     <div class="fr2">
-      <label class="fl">Valeur (${curSymbol()})<input id="eaVal" class="fi" type="text" inputmode="decimal" value="${a.val.toString().replace('.',',')}"></label>
-      <label class="fl">Categorie<select id="eaCat" class="fs">${catOpts}</select></label>
+      <label class="fl">Valeur actuelle (${curSymbol()})<input id="eaVal" class="fi" type="text" inputmode="decimal" value="${a.val.toString().replace('.',',')}"></label>
+      <label class="fl">Catégorie<select id="eaCat" class="fs">${catOpts}</select></label>
+    </div>
+    <div style="background:rgba(255,255,255,.04);border-radius:var(--Rs);padding:12px;margin-top:4px">
+      <div class="card-t" style="margin-bottom:8px">Enregistrer un mouvement</div>
+      <div class="fr2" style="margin-bottom:8px">
+        <label class="fl">Montant (${curSymbol()})<input id="eaMvtAmt" class="fi" type="text" inputmode="decimal" placeholder="−1000 ou +500"></label>
+        <label class="fl">Raison<input id="eaMvtReason" class="fi" type="text" placeholder="Projet, achat, dépôt…"></label>
+      </div>
+      <button onclick="addAssetMvt('${id}')" style="width:100%;background:linear-gradient(135deg,var(--gold),var(--purple));border:none;color:#fff;padding:10px;border-radius:var(--Rx);font-family:var(--font);font-size:13px;font-weight:700;cursor:pointer">Enregistrer →</button>
+    </div>
+    <div style="margin-top:8px">
+      <div class="card-t" style="margin-bottom:6px">Historique</div>
+      ${mvtHtml}
     </div>
   </div>`;
-  openSheet('Modifier l\'actif', body, ()=>saveEditAsset(id));
+  openSheet(`${esc(a.name)} · ${fmtEur(a.val)}`, body, ()=>saveEditAsset(id));
+}
+function addAssetMvt(id){
+  const a=data.assets.find(x=>x.id===id); if(!a)return;
+  const rawAmt=document.getElementById('eaMvtAmt')?.value?.trim().replace(',','.');
+  const delta=parseFloat(rawAmt);
+  const reason=document.getElementById('eaMvtReason')?.value?.trim()||'';
+  if(!rawAmt||isNaN(delta)||delta===0){toast('Montant invalide','err');return;}
+  const newVal=Math.max(0,a.val+delta);
+  if(!a.mouvements)a.mouvements=[];
+  a.mouvements.push({d:new Date().toISOString().slice(0,10),delta,reason,valBefore:a.val,valAfter:newVal});
+  a.val=newVal;
+  save();
+  toast(`${delta>=0?'+':''}${fmtEur(delta)} enregistré`);
+  // Refresh sheet content
+  closeSheet();
+  setTimeout(()=>openEditAsset(id),150);
+  if(cv==='patrimoine'){const m=document.getElementById('main');if(m)m.innerHTML=rPatrimoine();}
 }
 function saveEditAsset(id){
   const a=data.assets.find(x=>x.id===id); if(!a)return;
   const name=document.getElementById('eaName')?.value?.trim();
   const val=parseInput(document.getElementById('eaVal')?.value);
   const cat=document.getElementById('eaCat')?.value;
-  if(!name||!val||isNaN(val)){toast('Champs manquants','err');return;}
+  if(!name||isNaN(val)||val==null){toast('Champs manquants','err');return;}
+  // Si la valeur a changé manuellement, enregistrer un mouvement implicite
+  if(val!==a.val){
+    const delta=val-a.val;
+    if(!a.mouvements)a.mouvements=[];
+    a.mouvements.push({d:new Date().toISOString().slice(0,10),delta,reason:'Correction manuelle',valBefore:a.val,valAfter:val});
+  }
   a.name=name; a.val=val; a.cat=cat;
-  save(); closeSheet(); toast('Actif modifie'); render();
+  save(); closeSheet(); toast('Actif modifié'); render();
 }
 
 // ── Edit Debt ─────────────────────────────────────────────
