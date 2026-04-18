@@ -472,6 +472,14 @@ button,a,[onclick]{touch-action:manipulation}
 .insight-dots{display:flex;justify-content:center;gap:5px;margin-top:6px}
 .insight-dot{width:5px;height:5px;border-radius:50%;background:var(--border);transition:background .2s,width .2s}
 .insight-dot.on{background:var(--gold);width:14px;border-radius:3px}
+.insight-bar-bg{height:4px;border-radius:2px;background:rgba(255,255,255,.06);overflow:hidden}
+.insight-bar-fill{height:100%;border-radius:2px;transition:width .5s cubic-bezier(.16,1,.3,1)}
+.insight-priority{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;background:rgba(200,126,160,.2);border:1px solid rgba(200,126,160,.3);color:#C87EA0;font-family:var(--mono);font-size:8px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;vertical-align:middle}
+.insight-head-tag{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:16px;padding:0 5px;border-radius:8px;font-family:var(--mono);font-size:9px;font-weight:700}
+.insight-head-tag.i-bad{background:rgba(200,126,160,.2);color:#C87EA0}
+.insight-head-tag.i-warn{background:rgba(255,170,68,.2);color:#FFAA44}
+.insight-head-tag.i-good{background:rgba(126,200,169,.2);color:#7EC8A9}
+.insight-head-tag.i-info{background:rgba(129,140,248,.2);color:#818CF8}
 /* ── COUNTER shimmer (hero) ── */
 .counting{background:linear-gradient(90deg,currentColor 40%,rgba(255,255,255,.6) 50%,currentColor 60%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent;animation:shimmer 1s ease-out 1}
 /* ── ANIMATIONS — Apple-style easing ── */
@@ -1302,110 +1310,128 @@ function _sparkDataForCategory(catName){
   return out;
 }
 // ── Insights: change tracker → conseiller ──
+// Chaque insight a : {kind, icon, title, msg, cta?, priority?, bar?, tags?}
+// priority : 0..10 (plus haut = plus en avant). Par défaut : bad=8, warn=6, good=3, info=2
 function _computeInsights(){
   const insights=[];
   const now=new Date();
   const todayStr=now.toISOString().slice(0,10);
-  // Helper: ISO day (N days ago)
   const dAgo=n=>{const d=new Date(now);d.setDate(now.getDate()-n);return d.toISOString().slice(0,10);};
+  const fmtDateShort=d=>d.toLocaleDateString('fr-FR',{day:'numeric',month:'short'});
+  const DAY_NAMES=['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi'];
   const txExp=data.t.filter(t=>t.tp==='e'&&!t._isSub);
-  // 1) This week vs 4-week avg
+  const txAll=data.t||[];
+  const thisMoTx=data.t.filter(t=>{const d=new Date(t.d);return d.getMonth()===sm&&d.getFullYear()===sy;});
+  const thisMoExp=thisMoTx.filter(t=>t.tp==='e').reduce((s,t)=>s+t.a,0);
+  const thisMoInc=thisMoTx.filter(t=>t.tp==='i').reduce((s,t)=>s+t.a,0);
+  // 1) Semaine vs moyenne 4 sem.
   try{
     const w1=txExp.filter(t=>t.d>=dAgo(6)&&t.d<=todayStr).reduce((s,t)=>s+t.a,0);
     const wPrev=[];
-    for(let k=1;k<=4;k++){
-      const s=dAgo(k*7+6),e=dAgo(k*7);
-      wPrev.push(txExp.filter(t=>t.d>=s&&t.d<=e).reduce((s2,t)=>s2+t.a,0));
-    }
+    for(let k=1;k<=4;k++){const s=dAgo(k*7+6),e=dAgo(k*7);wPrev.push(txExp.filter(t=>t.d>=s&&t.d<=e).reduce((s2,t)=>s2+t.a,0));}
     const avgPrev=wPrev.reduce((a,b)=>a+b,0)/(wPrev.length||1);
     if(avgPrev>5&&w1>0){
-      const delta=w1-avgPrev;
-      const pct=Math.round(delta/avgPrev*100);
+      const pct=Math.round((w1-avgPrev)/avgPrev*100);
       if(Math.abs(pct)>=15){
         insights.push({
-          kind:pct>0?'warn':'good',
-          icon:pct>0?'📈':'📉',
-          title:pct>0?`Tu dépenses ${pct}% de plus cette semaine`:`Tu dépenses ${Math.abs(pct)}% de moins cette semaine`,
-          msg:`${fmtEur(w1)} vs ${fmtEur(avgPrev)} en moyenne (4 sem.)`,
+          kind:pct>0?'warn':'good',icon:pct>0?'📈':'📉',priority:pct>0?6:3,
+          title:pct>0?`+${pct}% de dépenses cette semaine`:`−${Math.abs(pct)}% de dépenses cette semaine`,
+          msg:`${fmtEur(w1)} · moyenne 4 sem. ${fmtEur(avgPrev)}`,
           cta:pct>0?{label:'Voir l\'historique →',action:"navTo('history')"}:null
         });
       }
     }
   }catch(e){}
-  // 2) Goal at pace
+  // 2) Projection de fin de mois (nouvelle)
   try{
-    (data.goals||[]).filter(g=>g.saved<g.target).forEach(g=>{
-      if(!g.target||g.saved<=0)return;
-      // Pace = average saved per day since first contribution (fallback: 90 days)
-      const firstD=g.created||dAgo(90);
-      const daysElapsed=Math.max(1,(new Date(todayStr)-new Date(firstD))/(86400000));
-      const perDay=g.saved/daysElapsed;
-      if(perDay<=0)return;
-      const remain=g.target-g.saved;
-      const daysLeft=Math.round(remain/perDay);
-      if(daysLeft<=0||daysLeft>1000)return;
-      const dEnd=new Date();dEnd.setDate(dEnd.getDate()+daysLeft);
-      const dateStr=dEnd.toLocaleDateString('fr-FR',{day:'numeric',month:'short',year:'numeric'});
-      const pct=Math.round(g.saved/g.target*100);
-      insights.push({
-        kind:'info',
-        icon:g.icon||'🎯',
-        title:`Objectif ${g.name} — fin prévue ${dateStr}`,
-        msg:`${pct}% atteint · rythme ${fmtEur(perDay*30)}/mois`,
-        cta:{label:'Gérer l\'objectif →',action:"navTo('goals')"}
-      });
-    });
+    if(thisMoExp>0){
+      const dayOfMo=now.getDate();
+      const daysInMo=new Date(sy,sm+1,0).getDate();
+      const pctTime=dayOfMo/daysInMo;
+      if(pctTime>0.15&&pctTime<0.95){
+        const projExp=thisMoExp/pctTime;
+        const projNet=thisMoInc-projExp;
+        // Include recurring subs projected for the rest of the month (best-effort)
+        insights.push({
+          kind:projNet>=0?'good':'bad',
+          icon:projNet>=0?'🧭':'⚠️',
+          priority:projNet<0?9:4,
+          title:projNet>=0?`Fin du mois : environ ${fmtEur(projNet)}`:`Alerte : déficit prévu ${fmtEur(projNet)}`,
+          msg:`Au rythme actuel (J+${dayOfMo}/${daysInMo}) · ~${fmtEur(projExp)} de dépenses`,
+          cta:projNet<0?{label:'Voir catégories →',action:"navTo('history')"}:null
+        });
+      }
+    }
   }catch(e){}
-  // 3) Subscription price increase
+  // 3) Budget burn rate mensuel (nouveau)
+  try{
+    const monthlyBudget=Object.values(data.b||{}).reduce((s,v)=>s+(Number(v)||0),0);
+    if(monthlyBudget>0&&thisMoExp>0){
+      const dayOfMo=now.getDate();
+      const daysInMo=new Date(sy,sm+1,0).getDate();
+      const pctTime=Math.round(dayOfMo/daysInMo*100);
+      const pctUsed=Math.round(thisMoExp/monthlyBudget*100);
+      if(pctUsed>=pctTime+15&&pctUsed<=120){
+        insights.push({
+          kind:pctUsed>=100?'bad':'warn',
+          icon:'🔥',priority:pctUsed>=100?9:7,
+          title:pctUsed>=100?`Budget mensuel dépassé (${pctUsed}%)`:`${pctUsed}% du budget mensuel consommé à J+${pctTime}%`,
+          msg:`${fmtEur(thisMoExp)} / ${fmtEur(monthlyBudget)} · ${daysInMo-dayOfMo}j restants`,
+          bar:{pct:Math.min(pctUsed,120),color:pctUsed>=100?'#C87EA0':'#FFAA44'},
+          cta:null
+        });
+      }else if(pctUsed<=pctTime-15&&pctUsed>10){
+        insights.push({
+          kind:'good',icon:'🎯',priority:3,
+          title:`Sous-budget : ${pctUsed}% consommé à J+${pctTime}%`,
+          msg:`${fmtEur(monthlyBudget-thisMoExp)} encore disponibles`,
+          bar:{pct:pctUsed,color:'#7EC8A9'},
+          cta:null
+        });
+      }
+    }
+  }catch(e){}
+  // 4) Augmentation d'abonnement (amélioré)
   try{
     (data.s||[]).filter(s=>s.active!==false&&s._tp!=='i').forEach(s=>{
       const hist=s.priceHistory||[];
       if(hist.length<2)return;
-      const last=hist[hist.length-1],prev=hist[hist.length-2];
+      const sorted=[...hist].sort((a,b)=>(a.effectiveFrom||'').localeCompare(b.effectiveFrom||''));
+      const last=sorted[sorted.length-1],prev=sorted[sorted.length-2];
       if(!last||!prev||!prev.a)return;
       const delta=last.a-prev.a;
       const pct=Math.round(delta/prev.a*100);
       if(Math.abs(pct)>=5&&delta>0){
         insights.push({
-          kind:'warn',
-          icon:'⚠️',
+          kind:'warn',icon:'⚠️',priority:5,
           title:`${s.name} a augmenté de ${pct}%`,
-          msg:`${fmtEur(prev.a)} → ${fmtEur(last.a)}`,
+          msg:`${fmtEur(prev.a)} → ${fmtEur(last.a)} depuis ${last.effectiveFrom||'—'}`,
           cta:{label:'Voir abonnements →',action:"navTo('subs')"}
         });
       }
     });
   }catch(e){}
-  // 4) Top category biggest delta this month vs last
+  // 5) Top catégorie : delta mois vs mois
   try{
-    const thisMo=data.t.filter(t=>{const d=new Date(t.d);return d.getMonth()===sm&&d.getFullYear()===sy&&t.tp==='e';});
     const prevDt=new Date(sy,sm-1,1);
     const prevMo=data.t.filter(t=>{const d=new Date(t.d);return d.getMonth()===prevDt.getMonth()&&d.getFullYear()===prevDt.getFullYear()&&t.tp==='e';});
     const byCatA={},byCatB={};
-    thisMo.forEach(t=>{byCatA[t.c]=(byCatA[t.c]||0)+t.a;});
+    thisMoTx.filter(t=>t.tp==='e').forEach(t=>{byCatA[t.c]=(byCatA[t.c]||0)+t.a;});
     prevMo.forEach(t=>{byCatB[t.c]=(byCatB[t.c]||0)+t.a;});
     const cats=[...new Set([...Object.keys(byCatA),...Object.keys(byCatB)])];
     let best=null;
-    cats.forEach(c=>{
-      const a=byCatA[c]||0,b=byCatB[c]||0;
-      if(b<20)return;
-      const delta=a-b,pct=Math.round(delta/b*100);
-      if(Math.abs(pct)<25)return;
-      if(!best||Math.abs(delta)>Math.abs(best.delta))best={cat:c,delta,pct,a,b};
-    });
+    cats.forEach(c=>{const a=byCatA[c]||0,b=byCatB[c]||0;if(b<20)return;const delta=a-b,pct=Math.round(delta/b*100);if(Math.abs(pct)<25)return;if(!best||Math.abs(delta)>Math.abs(best.delta))best={cat:c,delta,pct,a,b};});
     if(best){
-      const c=gc(best.cat);
-      const up=best.delta>0;
+      const c=gc(best.cat);const up=best.delta>0;
       insights.push({
-        kind:up?'warn':'good',
-        icon:c.icon||'📊',
+        kind:up?'warn':'good',icon:c.icon||'📊',priority:up?5:3,
         title:`${best.cat} : ${up?'+':''}${best.pct}% vs mois dernier`,
         msg:`${fmtEur(best.a)} ce mois · ${fmtEur(best.b)} précédent`,
         cta:null
       });
     }
   }catch(e){}
-  // 5) Unusual large transaction this week
+  // 6) Dépense inhabituelle (semaine)
   try{
     const wStart=dAgo(6);
     const recent=txExp.filter(t=>t.d>=wStart&&t.d<=todayStr);
@@ -1413,12 +1439,10 @@ function _computeInsights(){
       const amounts=txExp.map(t=>t.a).sort((a,b)=>a-b);
       if(amounts.length>=10){
         const p75=amounts[Math.floor(amounts.length*0.75)];
-        const threshold=p75*2;
-        const big=recent.filter(t=>t.a>=threshold).sort((a,b)=>b.a-a.a)[0];
+        const big=recent.filter(t=>t.a>=p75*2).sort((a,b)=>b.a-a.a)[0];
         if(big&&big.a>=50){
           insights.push({
-            kind:'info',
-            icon:'💸',
+            kind:'info',icon:'💸',priority:4,
             title:`Dépense inhabituelle : ${fmtEur(big.a)}`,
             msg:`${big.lb||big.c} · ${big.d}`,
             cta:null
@@ -1427,21 +1451,201 @@ function _computeInsights(){
       }
     }
   }catch(e){}
-  // 6) Savings rate this month
+  // 7) Taux d'épargne du mois
   try{
-    const txs=data.t.filter(t=>{const d=new Date(t.d);return d.getMonth()===sm&&d.getFullYear()===sy;});
-    const inc=txs.filter(t=>t.tp==='i').reduce((s,t)=>s+t.a,0);
-    const exp=txs.filter(t=>t.tp==='e').reduce((s,t)=>s+t.a,0);
-    if(inc>500){
-      const rate=Math.round((inc-exp)/inc*100);
-      if(rate>=20){
-        insights.push({kind:'good',icon:'🏆',title:`Super taux d\'épargne : ${rate}%`,msg:`Tu économises ${fmtEur(inc-exp)} ce mois`,cta:null});
+    if(thisMoInc>500){
+      const rate=Math.round((thisMoInc-thisMoExp)/thisMoInc*100);
+      if(rate>=30){
+        insights.push({kind:'good',icon:'🏆',priority:6,title:`Excellent taux d'épargne : ${rate}%`,msg:`${fmtEur(thisMoInc-thisMoExp)} épargnés ce mois`,cta:null});
+      }else if(rate>=20){
+        insights.push({kind:'good',icon:'⭐',priority:4,title:`Bon taux d'épargne : ${rate}%`,msg:`Tu épargnes ${fmtEur(thisMoInc-thisMoExp)} ce mois`,cta:null});
       }else if(rate<0){
-        insights.push({kind:'bad',icon:'⚠️',title:`Dépenses > revenus ce mois`,msg:`Solde : ${fmtEur(inc-exp)}`,cta:{label:'Voir détails →',action:"navTo('history')"}});
+        insights.push({kind:'bad',icon:'⚠️',priority:9,title:`Dépenses > revenus ce mois`,msg:`Solde : ${fmtEur(thisMoInc-thisMoExp)}`,cta:{label:'Voir détails →',action:"navTo('history')"}});
       }
     }
   }catch(e){}
-  return insights.slice(0,6);
+  // 8) Jour de la semaine le plus dépensier (nouveau)
+  try{
+    const last60=txExp.filter(t=>t.d>=dAgo(60));
+    if(last60.length>=20){
+      const byDow=[0,0,0,0,0,0,0];const nByDow=[0,0,0,0,0,0,0];
+      last60.forEach(t=>{const d=new Date(t.d+'T12:00:00');byDow[d.getDay()]+=t.a;nByDow[d.getDay()]+=1;});
+      const avgByDow=byDow.map((v,i)=>nByDow[i]?v/nByDow[i]:0);
+      const maxDow=avgByDow.indexOf(Math.max(...avgByDow));
+      const globalAvg=avgByDow.reduce((a,b)=>a+b,0)/7;
+      if(avgByDow[maxDow]>globalAvg*1.5&&avgByDow[maxDow]>20){
+        insights.push({
+          kind:'info',icon:'📅',priority:2,
+          title:`Tu dépenses le plus le ${DAY_NAMES[maxDow]}`,
+          msg:`En moyenne ${fmtEur(avgByDow[maxDow])}/transaction (vs ${fmtEur(globalAvg)} global)`,
+          cta:null
+        });
+      }
+    }
+  }catch(e){}
+  // 9) Jours sans dépense ce mois (nouveau)
+  try{
+    const dayOfMo=now.getDate();
+    const daysWithExp=new Set(thisMoTx.filter(t=>t.tp==='e').map(t=>t.d));
+    const noSpendDays=dayOfMo-daysWithExp.size;
+    if(noSpendDays>=5){
+      insights.push({
+        kind:'good',icon:'🧘',priority:3,
+        title:`${noSpendDays} jours sans dépense ce mois`,
+        msg:`Soit ${Math.round(noSpendDays/dayOfMo*100)}% du mois en mode zéro — continue !`,
+        cta:null
+      });
+    }
+  }catch(e){}
+  // 10) Objectif : rythme + alerte si deadline (amélioré)
+  try{
+    (data.goals||[]).filter(g=>g.saved<g.target).forEach(g=>{
+      if(!g.target||g.saved<=0)return;
+      const firstD=g.created||dAgo(90);
+      const daysElapsed=Math.max(1,(new Date(todayStr)-new Date(firstD))/(86400000));
+      const perDay=g.saved/daysElapsed;
+      if(perDay<=0)return;
+      const remain=g.target-g.saved;
+      const daysLeft=Math.round(remain/perDay);
+      if(daysLeft<=0||daysLeft>2000)return;
+      const dEnd=new Date();dEnd.setDate(dEnd.getDate()+daysLeft);
+      const pct=Math.round(g.saved/g.target*100);
+      // Si l'objectif a une deadline et qu'on est en retard
+      if(g.deadline){
+        const deadlineDate=new Date(g.deadline);
+        const daysToDeadline=Math.round((deadlineDate-now)/86400000);
+        if(daysToDeadline>0){
+          const requiredPerDay=remain/daysToDeadline;
+          if(requiredPerDay>perDay*1.3){
+            insights.push({
+              kind:'warn',icon:'⏰',priority:6,
+              title:`Objectif ${g.name} en retard`,
+              msg:`Il faut ${fmtEur(requiredPerDay*30)}/mois (rythme actuel ${fmtEur(perDay*30)})`,
+              cta:{label:'Ajuster →',action:"navTo('goals')"}
+            });
+            return;
+          }
+        }
+      }
+      insights.push({
+        kind:'info',icon:g.icon||'🎯',priority:2,
+        title:`Objectif ${g.name} — fin prévue ${dEnd.toLocaleDateString('fr-FR',{day:'numeric',month:'short',year:'numeric'})}`,
+        msg:`${pct}% atteint · rythme ${fmtEur(perDay*30)}/mois`,
+        cta:{label:'Gérer →',action:"navTo('goals')"}
+      });
+    });
+  }catch(e){}
+  // 11) Gros prélèvement à venir (nouveau)
+  try{
+    const upcoming=(data.s||[]).filter(s=>s.active!==false&&s._tp!=='i')
+      .map(s=>({s,days:daysUntil(s.next)}))
+      .filter(x=>x.days>=0&&x.days<=7)
+      .sort((a,b)=>b.s.a-a.s.a);
+    if(upcoming.length){
+      const big=upcoming[0];
+      if(big.s.a>=100){
+        insights.push({
+          kind:big.days<=2?'warn':'info',icon:'📆',priority:big.days<=2?6:3,
+          title:`Prélèvement ${fmtEur(big.s.a)} dans ${big.days===0?"aujourd'hui":big.days+'j'}`,
+          msg:`${big.s.name} · ${fmtDateShort(new Date(big.s.next))}`,
+          cta:{label:'Voir abos →',action:"navTo('subs')"}
+        });
+      }
+    }
+  }catch(e){}
+  // 12) Catégorie plafond approchée (nouveau)
+  try{
+    const catBudgets=data.b||{};
+    Object.keys(catBudgets).forEach(catName=>{
+      const cap=Number(catBudgets[catName])||0;
+      if(cap<=0)return;
+      const total=thisMoTx.filter(t=>t.tp==='e'&&t.c===catName).reduce((s,t)=>s+t.a,0);
+      if(total<cap*0.8)return;
+      const pct=Math.round(total/cap*100);
+      const c=gc(catName);
+      if(pct>=100){
+        insights.push({
+          kind:'bad',icon:'🚨',priority:8,
+          title:`${catName} : plafond dépassé`,
+          msg:`${fmtEur(total)} / ${fmtEur(cap)} (${pct}%)`,
+          bar:{pct:Math.min(pct,120),color:c.color||'#C87EA0'},
+          cta:null
+        });
+      }else if(pct>=85){
+        insights.push({
+          kind:'warn',icon:c.icon||'⚠️',priority:5,
+          title:`${catName} : ${pct}% du plafond`,
+          msg:`Reste ${fmtEur(cap-total)} avant la fin du mois`,
+          bar:{pct:pct,color:c.color||'#FFAA44'},
+          cta:null
+        });
+      }
+    });
+  }catch(e){}
+  // 13) Patrimoine net : tendance (nouveau)
+  try{
+    const allAssetMvts=(data.assets||[]).flatMap(a=>(a.mouvements||[]).map(m=>({d:m.d,delta:m.delta})));
+    const last30Delta=allAssetMvts.filter(m=>m.d>=dAgo(30)).reduce((s,m)=>s+m.delta,0);
+    if(Math.abs(last30Delta)>=200){
+      insights.push({
+        kind:last30Delta>0?'good':'warn',icon:last30Delta>0?'💎':'📉',priority:3,
+        title:last30Delta>0?`Patrimoine +${fmtEur(last30Delta)} sur 30j`:`Patrimoine ${fmtEur(last30Delta)} sur 30j`,
+        msg:`Mouvements nets enregistrés sur tes actifs`,
+        cta:{label:'Voir patrimoine →',action:"navTo('patrimoine')"}
+      });
+    }
+  }catch(e){}
+  // 14) Créances en attente (nouveau)
+  try{
+    const dues=(data.creances||[]).filter(c=>c.statut!=='soldé');
+    const totalDue=dues.reduce((s,c)=>s+(c.restant||c.montant||0),0);
+    if(dues.length>=3||totalDue>=500){
+      insights.push({
+        kind:'info',icon:'📋',priority:3,
+        title:`${dues.length} créance${dues.length>1?'s':''} à recouvrer`,
+        msg:`${fmtEur(totalDue)} prêté en attente de remboursement`,
+        cta:{label:'Gérer →',action:"navTo('patrimoine')"}
+      });
+    }
+  }catch(e){}
+  // 15) Dette : étape franchie (nouveau)
+  try{
+    (data.debts||[]).filter(d=>d.borrowed&&d.val>=0).forEach(d=>{
+      const paid=d.borrowed-d.val;
+      const pct=Math.round(paid/d.borrowed*100);
+      // Seuils : 25, 50, 75, 100
+      const milestones=[25,50,75,100];
+      if(milestones.includes(pct)&&d.val<d.borrowed){
+        insights.push({
+          kind:pct===100?'good':'info',icon:pct===100?'🎉':'📊',priority:pct===100?7:3,
+          title:pct===100?`Dette ${d.name} soldée 🎊`:`${d.name} : ${pct}% remboursé`,
+          msg:`${fmtEur(paid)} sur ${fmtEur(d.borrowed)}`,
+          cta:{label:'Voir dettes →',action:"navTo('patrimoine')"}
+        });
+      }
+    });
+  }catch(e){}
+  // 16) Trop de petites dépenses (cafés, petits achats)
+  try{
+    const last30=txExp.filter(t=>t.d>=dAgo(30)&&t.a>=2&&t.a<=15);
+    if(last30.length>=15){
+      const total=last30.reduce((s,t)=>s+t.a,0);
+      insights.push({
+        kind:'info',icon:'☕',priority:2,
+        title:`${last30.length} petites dépenses sur 30j`,
+        msg:`Total ${fmtEur(total)} en achats de moins de 15 €`,
+        cta:null
+      });
+    }
+  }catch(e){}
+  // Tri par priorité décroissante, puis par type (bad > warn > good > info)
+  const kindRank={bad:4,warn:3,good:2,info:1};
+  insights.sort((a,b)=>{
+    const pa=a.priority||(kindRank[a.kind]||0);
+    const pb=b.priority||(kindRank[b.kind]||0);
+    return pb-pa;
+  });
+  return insights.slice(0,8);
 }
 function _renderInsights(){
   const ins=_computeInsights();
@@ -1449,17 +1653,29 @@ function _renderInsights(){
   const cards=ins.map((i,idx)=>{
     const kindCls=i.kind==='good'?'i-good':i.kind==='warn'?'i-warn':i.kind==='bad'?'i-bad':'i-info';
     const cta=i.cta?`<button class="insight-cta" onclick="${i.cta.action}">${esc(i.cta.label)}</button>`:'';
-    return `<div class="insight-card ${kindCls}" style="animation-delay:${idx*0.06}s">
+    const barHtml=i.bar?`<div class="insight-bar" style="margin-top:8px"><div class="insight-bar-bg"><div class="insight-bar-fill" style="width:${Math.min(i.bar.pct,100)}%;background:${i.bar.color||'#818CF8'}"></div></div><div class="mono xxs" style="color:var(--muted);margin-top:3px;text-align:right">${i.bar.pct}%</div></div>`:'';
+    const priorityBadge=(i.priority||0)>=8?'<span class="insight-priority">urgent</span>':'';
+    return `<div class="insight-card ${kindCls}" style="animation-delay:${idx*0.05}s">
       <div class="insight-icon">${i.icon||'💡'}</div>
       <div class="insight-body">
-        <div class="insight-title">${esc(i.title)}</div>
+        <div class="insight-title">${esc(i.title)}${priorityBadge}</div>
         <div class="insight-msg">${esc(i.msg)}</div>
+        ${barHtml}
         ${cta}
       </div>
     </div>`;
   }).join('');
   const dots=ins.length>1?`<div class="insight-dots">${ins.map((_,i)=>`<span class="insight-dot${i===0?' on':''}" data-idx="${i}"></span>`).join('')}</div>`:'';
-  return `<div class="card insights-wrap"><div class="card-t" style="display:flex;align-items:center;gap:6px">✨ Insights <span class="mono xxs" style="color:var(--muted);font-weight:400;margin-left:auto">${ins.length}</span></div>
+  // Compte par type pour le header
+  const byKind={bad:0,warn:0,good:0,info:0};
+  ins.forEach(x=>{byKind[x.kind]=(byKind[x.kind]||0)+1;});
+  const headerTags=[
+    byKind.bad?`<span class="insight-head-tag i-bad">${byKind.bad}</span>`:'',
+    byKind.warn?`<span class="insight-head-tag i-warn">${byKind.warn}</span>`:'',
+    byKind.good?`<span class="insight-head-tag i-good">${byKind.good}</span>`:'',
+    byKind.info?`<span class="insight-head-tag i-info">${byKind.info}</span>`:''
+  ].filter(Boolean).join('');
+  return `<div class="card insights-wrap"><div class="card-t" style="display:flex;align-items:center;gap:6px">✨ Insights <span style="margin-left:auto;display:flex;gap:3px;align-items:center">${headerTags}</span></div>
     <div class="insights-scroll" id="insightsScroll">${cards}</div>
     ${dots}
   </div>`;
