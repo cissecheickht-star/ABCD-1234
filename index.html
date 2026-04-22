@@ -7,6 +7,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Budget Pro">
 <meta name="theme-color" content="#0A0C0F">
+<!-- Cache-busting : force le navigateur à revérifier à chaque visite -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Budget Pro</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -788,6 +792,8 @@ mark.hl{background:rgba(129,140,248,.3);color:var(--text);border-radius:2px;padd
 // ═══════════════════════════════════════════════════════════
 // CONSTANTS
 // ═══════════════════════════════════════════════════════════
+// Build marker — change à chaque déploiement. Permet de vérifier la version côté utilisateur (Plus → Paramètres → Version).
+const APP_BUILD='2026-04-22.1';
 const MS=['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
 const MSH=['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
 const CATS=[
@@ -3872,6 +3878,16 @@ function rSettings(){
       <button class="submit" style="flex:1;background:linear-gradient(135deg,var(--pink),var(--purple))" onclick="importBackup()">📤 Restaurer</button>
     </div>
     <button class="submit" style="margin-top:10px;background:linear-gradient(135deg,var(--gold),var(--green))" onclick="exportCSV()">📊 Export CSV (Excel/Sheets)</button>
+  </div>
+  <div class="card" style="opacity:.7">
+    <div class="card-t">ℹ Version</div>
+    <div class="mono xxs" style="color:var(--dim);line-height:1.6">
+      Budget Pro <b style="color:var(--text)">v4.1.0</b> · Build <b style="color:var(--gold)">${APP_BUILD}</b><br>
+      Si tu vois une ancienne version sur ton téléphone :<br>
+      • Safari : tiens appuyé sur ↻ → "Recharger sans le cache"<br>
+      • Chrome : ⋮ → Paramètres → Confidentialité → Effacer cache
+    </div>
+    <button onclick="location.reload(true)" style="width:100%;margin-top:10px;background:rgba(129,140,248,.12);border:1px solid rgba(129,140,248,.3);color:var(--gold);font-family:var(--mono);font-size:11px;font-weight:700;padding:10px;cursor:pointer;border-radius:8px">↻ Forcer recharge</button>
   </div>`;
 }
 function saveKpiToggles(){
