@@ -2028,10 +2028,16 @@ function _initInsightsScroll(){
 function rDash(){
   const kp=getKpiPrefs();
   const txs=mtxAll();
-  const inc=txs.filter(t=>t.tp==='i').reduce((s,t)=>s+t.a,0);
-  const exp=txs.filter(t=>t.tp==='e').reduce((s,t)=>s+t.a,0);
-  const moBalance=inc-exp; // solde du mois courant seulement
-  const bal=calcSoldeGlissant(sm,sy); // solde cumulé (glissant)
+  // Helper : une tx compte comme "épargne" si transfer vers asset/goal OU catégorie type=savings
+  const isSavingTx=t=>t.tp==='e'&&(t.transfer||gc(t.c).type==='savings');
+  const isWithdrawTx=t=>t.tp==='i'&&t.transfer; // retrait depuis épargne
+  const inc=txs.filter(t=>t.tp==='i'&&!isWithdrawTx(t)).reduce((s,t)=>s+t.a,0); // vrais revenus
+  const exp=txs.filter(t=>t.tp==='e'&&!isSavingTx(t)).reduce((s,t)=>s+t.a,0); // dépenses ordinaires
+  const savingIn=txs.filter(isSavingTx).reduce((s,t)=>s+t.a,0); // argent VERS épargne
+  const savingOut=txs.filter(isWithdrawTx).reduce((s,t)=>s+t.a,0); // argent DEPUIS épargne
+  const savingNet=savingIn-savingOut; // flux net d'épargne ce mois
+  const moBalance=inc-exp-savingNet; // ce qu'il reste après dépenses + épargne
+  const bal=calcSoldeGlissant(sm,sy);
   const byCat=CATS.map(c=>({...c,total:txs.filter(t=>t.tp==='e'&&t.c===c.name).reduce((s,t)=>s+t.a,0)})).filter(c=>c.total>0);
   // 6 month data — inclut les récurrents projetés sur chaque mois
   let m6=[];
@@ -2193,9 +2199,13 @@ function rDash(){
         <div class="hero-dark-flex-lb">Dépenses</div>
         <div class="hero-dark-flex-val p">−${fmtEur(exp)}</div>
       </div>
+      ${(savingIn>0||savingOut>0)?`<div class="hero-dark-flex-item">
+        <div class="hero-dark-flex-lb">Épargne</div>
+        <div class="hero-dark-flex-val" style="color:${savingNet>=0?'#A78BFA':'#FFAA44'}">${savingNet>=0?'→':'←'}${fmtEur(Math.abs(savingNet))}</div>
+      </div>`:''}
       <div class="hero-dark-flex-item">
         <div class="hero-dark-flex-lb">Net</div>
-        <div class="hero-dark-flex-val" style="color:${(inc-exp)>=0?'#7EC8A9':'#C87EA9'}">${(inc-exp)>=0?'+':'−'}${fmtEur(Math.abs(inc-exp))}</div>
+        <div class="hero-dark-flex-val" style="color:${moBalance>=0?'#7EC8A9':'#C87EA9'}">${moBalance>=0?'+':'−'}${fmtEur(Math.abs(moBalance))}</div>
       </div>
     </div>
   </div>`;
@@ -2357,7 +2367,7 @@ function rAdd(){
   if(assets.length)destOpts+=`<optgroup label="Actifs / Épargne">`+assets.map(a=>`<option value="asset:${a.id}">💎 ${esc(a.name)}</option>`).join('')+`</optgroup>`;
   if(goals.length)destOpts+=`<optgroup label="Objectifs">`+goals.map(g=>`<option value="goal:${g.id}">🎯 ${esc(g.name)}</option>`).join('')+`</optgroup>`;
   const transferSection=(assets.length||goals.length)
-    ?`<label class="fl">Transfert vers épargne / objectif (optionnel)<select id="fXfer" class="fs">${destOpts}</select></label><div class="mono xxs" style="color:var(--muted);margin-top:-4px;line-height:1.5">Alimente aussi l'actif ou l'objectif choisi. La tx reste une sortie du compte courant.</div>`
+    ?`<label class="fl" id="fXferLbl">Transfert vers épargne / objectif (optionnel)<select id="fXfer" class="fs">${destOpts}</select></label><div class="mono xxs" id="fXferHelp" style="color:var(--muted);margin-top:-4px;line-height:1.5">Si dépense : alimente l'actif/objectif. Si revenu : retire de l'actif/objectif (retrait d'épargne).</div>`
     :'';
   // Quick stats header — contexte du mois
   const moTxs=mtx();
@@ -2370,7 +2380,18 @@ function rAdd(){
   </div>`;
   return `${header}<div class="card"><div class="card-t">＋ Nouvelle transaction</div><div class="fg"><div><div class="fl" style="margin-bottom:6px">Type</div><div class="pill-row"><button class="pill on-p" id="bE" onclick="selType('e')">− Dépense</button><button class="pill" id="bI" onclick="selType('i')">+ Revenu</button></div><input id="fT" type="hidden" value="e"></div><label class="fl">Libellé<input id="fL" class="fi" type="text" placeholder="Ex : Loyer, Salaire…"></label><div class="fr2"><label class="fl">Montant (${curSymbol()})<input id="fA" class="fi" type="text" inputmode="decimal" placeholder="0,00"></label><label class="fl">Date<input id="fD" class="fi" type="date" value="${todayStr()}"></label></div><label class="fl">Catégorie<select id="fC" class="fs">${opts}</select></label>${transferSection}<div><div class="fl" style="margin-bottom:6px">Récurrence</div><div class="pill-row"><button class="pill on" id="rNone" onclick="selRecur('none')">Unique</button><button class="pill" id="rMonth" onclick="selRecur('monthly')">Mensuel</button><button class="pill" id="rWeek" onclick="selRecur('weekly')">Hebdo</button><button class="pill" id="rYear" onclick="selRecur('yearly')">Annuel</button></div><input id="fRecur" type="hidden" value="none"></div><button class="submit" onclick="submitTx()">Ajouter →</button></div></div>`;
 }
-function selType(tp){document.getElementById('fT').value=tp;document.getElementById('bE').className='pill'+(tp==='e'?' on-p':'');document.getElementById('bI').className='pill'+(tp==='i'?' on-g':'');}
+function selType(tp){
+  document.getElementById('fT').value=tp;
+  document.getElementById('bE').className='pill'+(tp==='e'?' on-p':'');
+  document.getElementById('bI').className='pill'+(tp==='i'?' on-g':'');
+  // Adapte le label transfert selon le type
+  const lbl=document.getElementById('fXferLbl');
+  if(lbl){
+    const selectEl=lbl.querySelector('select');
+    const currentText=tp==='i'?'Retrait depuis épargne / objectif (optionnel)':'Transfert vers épargne / objectif (optionnel)';
+    lbl.childNodes[0].textContent=currentText;
+  }
+}
 function selRecur(r){document.getElementById('fRecur').value=r;['None','Month','Week','Year'].forEach(k=>{document.getElementById('r'+k).className='pill'+((k==='None'&&r==='none')||(k==='Month'&&r==='monthly')||(k==='Week'&&r==='weekly')||(k==='Year'&&r==='yearly')?' on':'');});}
 function nextRecurDate(d,freq){const dt=new Date(d);if(freq==='monthly')dt.setMonth(dt.getMonth()+1);else if(freq==='weekly')dt.setDate(dt.getDate()+7);else if(freq==='yearly')dt.setFullYear(dt.getFullYear()+1);return dt.toISOString().slice(0,10);}
 function submitTx(){
@@ -2460,40 +2481,49 @@ function emptyTrash(){
 // alimente aussi un actif ou un objectif (en plus d'être une sortie de compte courant).
 // `_applyTxTransfer` crée l'impact (mouvement actif ou ++goal.saved) et stocke
 // `transferApplied` pour savoir comment reverser plus tard.
+// Direction du transfert :
+//   tp='e' + transfer → sortie du compte courant → alimente l'actif/objectif (+)
+//   tp='i' + transfer → entrée sur compte courant → retire de l'actif/objectif (−)
 function _applyTxTransfer(t){
   if(!t||!t.transfer)return;
-  if(t.transferApplied)return; // idempotent
+  if(t.transferApplied)return;
   const {type,id}=t.transfer;
   const amt=Math.abs(t.a||0);
   if(amt<=0)return;
+  const isWithdraw=(t.tp==='i'); // Revenu = retrait depuis l'épargne/objectif
+  const delta=isWithdraw?-amt:amt;
   if(type==='asset'){
     const a=data.assets&&data.assets.find(x=>x.id===id);
     if(!a)return;
+    const newVal=Math.max(0,a.val+delta);
     const mvtId=gid();
-    const newVal=a.val+amt;
     if(!a.mouvements)a.mouvements=[];
-    a.mouvements.push({id:mvtId,d:t.d,delta:amt,reason:(t.lb||'Transfert')+' · tx',valBefore:a.val,valAfter:newVal,_fromTxId:t.id});
+    const reasonPrefix=isWithdraw?'Retrait ← ':'Transfert → ';
+    a.mouvements.push({id:mvtId,d:t.d,delta,reason:reasonPrefix+(t.lb||'tx'),valBefore:a.val,valAfter:newVal,_fromTxId:t.id});
     a.val=newVal;
-    t.transferApplied={type,id,amount:amt,mvtId};
+    t.transferApplied={type,id,amount:amt,direction:isWithdraw?'in':'out',mvtId};
   }else if(type==='goal'){
     const g=data.goals&&data.goals.find(x=>x.id===id);
     if(!g)return;
-    g.saved=Math.min((g.saved||0)+amt,g.target);
-    t.transferApplied={type,id,amount:amt};
+    const newSaved=Math.max(0,(g.saved||0)+delta);
+    g.saved=Math.min(newSaved,g.target);
+    t.transferApplied={type,id,amount:amt,direction:isWithdraw?'in':'out'};
   }
 }
 function _reverseTxTransfer(t){
   if(!t||!t.transferApplied)return;
-  const {type,id,amount,mvtId}=t.transferApplied;
+  const {type,id,amount,direction,mvtId}=t.transferApplied;
+  const wasWithdraw=(direction==='in');
+  const reverseDelta=wasWithdraw?amount:-amount;
   if(type==='asset'){
     const a=data.assets&&data.assets.find(x=>x.id===id);
     if(a){
       if(mvtId)a.mouvements=(a.mouvements||[]).filter(m=>m.id!==mvtId);
-      a.val=Math.max(0,a.val-amount);
+      a.val=Math.max(0,a.val+reverseDelta);
     }
   }else if(type==='goal'){
     const g=data.goals&&data.goals.find(x=>x.id===id);
-    if(g)g.saved=Math.max(0,(g.saved||0)-amount);
+    if(g)g.saved=Math.max(0,(g.saved||0)+reverseDelta);
   }
   delete t.transferApplied;
 }
@@ -2971,7 +3001,14 @@ function rPatrimoine(){
   const _trend=_assetPts?(_assetPts[_assetPts.length-1]-_assetPts[0]):0;
   const _sparkCol=_trend>=0?'#7EC8A9':'#C87EA0';
   const _sparkHtml=_assetPts?_sparkline(_assetPts,{w:60,h:20,color:_sparkCol}):'';
-  return`<div class="asset-row"><div style="min-width:0;flex:1"><div class="asset-nm">${esc(a.name)}</div><div class="asset-cat">${a.cat}${mvtTag}</div></div>${_sparkHtml}<div style="display:flex;align-items:center;gap:6px;flex-shrink:0"><span class="mono sm g">${fmtEur(a.val)}</span><button class="sab ed" onclick="openEditAsset('${a.id}')">✎</button><button class="tx-del" onclick="delAsset('${a.id}')">×</button></div></div>`;
+  // v3.1 : allocations en attente (subs non renouvelés avec règle vers cet actif)
+  const pendingInflow=_pendingAssetAllocations(a.id);
+  const pendingTag=pendingInflow>0?`<div class="mono xxs" style="color:var(--purple);margin-top:2px">⏳ +${fmtEur(pendingInflow)} en attente (${a.val>0?Math.round(pendingInflow/a.val*100):0}% à venir au renouvellement des subs)</div>`:'';
+  const projectedVal=a.val+pendingInflow;
+  const valHtml=pendingInflow>0
+    ?`<span class="mono sm g" title="Actuel : ${fmtEur(a.val)} · Projeté après subs : ${fmtEur(projectedVal)}">${fmtEur(a.val)}<span style="color:var(--purple);font-size:.85em"> +${fmtEur(pendingInflow)}</span></span>`
+    :`<span class="mono sm g">${fmtEur(a.val)}</span>`;
+  return`<div class="asset-row"><div style="min-width:0;flex:1"><div class="asset-nm">${esc(a.name)}</div><div class="asset-cat">${a.cat}${mvtTag}</div>${pendingTag}</div>${_sparkHtml}<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">${valHtml}<button class="sab ed" onclick="openEditAsset('${a.id}')">✎</button><button class="tx-del" onclick="delAsset('${a.id}')">×</button></div></div>`;
 }).join('');
   const debtRows=debts.length===0?'<div class="empty">Aucune dette</div>':debts.map(d=>{
     const borrowed=d.borrowed||d.val;const paid=borrowed-d.val;const pct=borrowed>0?Math.round(paid/borrowed*100):0;
@@ -3643,7 +3680,7 @@ function rHistory(){
         const _amtHit=_q&&!isNaN(_qn)&&/^-?[\d.,]+$/.test(_q)&&(t.a.toFixed(2).includes(_q.replace(',','.'))||Math.abs(t.a-Math.abs(_qn))<0.01);
         const _amtHtml=_amtHit?'<mark class="hl">'+(isInc?'+':'−')+fmtEur(t.a)+'</mark>':(isInc?'+':'−')+fmtEur(t.a);
         const icoClass=isInc?'ico-inc':(t.transfer?'ico-xfer':_catIconClass(t.c));
-        const badges=t.transfer?`<span class="xbadge xfer">XFR</span>`:'';
+        const badges=t.transfer?`<span class="xbadge xfer">${t.tp==='i'?'← RETRAIT':'→ ÉPARGNE'}</span>`:'';
         const icoEmoji=isInc?'💰':(t.transfer?'💎':(cat.icon||'💸'));
         txHtml+=`<div class="tx-swipe-wrap" data-txid="${t.id}">
           <div class="row" onclick="openEditTx('${t.id}')" style="animation-delay:${idx*.02}s">
@@ -4128,7 +4165,7 @@ function openEditTx(id){
     <div class="fr2">
       <label class="fl">Montant (${curSymbol()})<input id="etAmt" class="fi" type="text" inputmode="decimal" value="${t.a.toString().replace('.',',')}"></label>
       <label class="fl">Type
-        <select id="etTp" class="fs">
+        <select id="etTp" class="fs" onchange="_onEditTpChange()">
           <option value="e"${t.tp==='e'?' selected':''}>Depense</option>
           <option value="i"${t.tp==='i'?' selected':''}>Revenu</option>
         </select>
@@ -4136,12 +4173,20 @@ function openEditTx(id){
     </div>
     <label class="fl">Date<input id="etDate" class="fi" type="date" value="${t.d}"></label>
     <label class="fl">Categorie<select id="etCat" class="fs">${catOpts}</select></label>
-    <label class="fl">Transfert vers épargne / objectif
+    <label class="fl" id="etTransferLbl">${t.tp==='i'?'Retrait depuis épargne / objectif':'Transfert vers épargne / objectif'}
       <select id="etTransfer" class="fs">${destOpts}</select>
     </label>
     ${transferHelp}
   </div>`;
   openSheet('Modifier la transaction', body, ()=>saveEditTx(id));
+}
+function _onEditTpChange(){
+  const tp=document.getElementById('etTp')?.value;
+  const lbl=document.getElementById('etTransferLbl');
+  if(lbl){
+    const txtNode=lbl.childNodes[0];
+    if(txtNode)txtNode.textContent=(tp==='i'?'Retrait depuis épargne / objectif':'Transfert vers épargne / objectif');
+  }
 }
 function saveEditTx(id){
   const t=data.t.find(x=>x.id===id); if(!t)return;
@@ -4371,6 +4416,48 @@ function _allocAmount(alloc,mainAmt){
   const mode=alloc.mode||'pct';
   if(mode==='amt')return Math.max(0,alloc.amt||0);
   return Math.max(0,mainAmt*(alloc.pct||0)/100);
+}
+// Calcule les allocations en attente (pas encore appliquées) vers un actif donné
+// = somme des transferts projetés des subs actifs non renouvelés ce mois
+function _pendingAssetAllocations(assetId){
+  let total=0;
+  const todayIso=new Date().toISOString().slice(0,10);
+  const viewFirst=new Date(sy,sm,1);
+  const viewLast=new Date(sy,sm+1,0);
+  (data.s||[]).filter(s=>s.active!==false&&s._tp==='i'&&Array.isArray(s.allocations)&&s.allocations.length).forEach(s=>{
+    // Le sub tombe-t-il dans le mois affiché ?
+    const nd=new Date(s.next);
+    const isThisMonth=nd>=viewFirst&&nd<=viewLast;
+    if(!isThisMonth)return;
+    // Déjà renouvelé ce mois ?
+    const alreadyRenewed=(data.t||[]).some(t=>t._subId===s.id&&t.transfer&&new Date(t.d).getMonth()===sm&&new Date(t.d).getFullYear()===sy);
+    if(alreadyRenewed)return;
+    s.allocations.forEach(alloc=>{
+      if(alloc.type!=='asset'||alloc.id!==assetId)return;
+      if(alloc.effectiveFrom&&alloc.effectiveFrom>s.next)return;
+      const amt=_allocAmount(alloc,s.a);
+      if(amt>=0.01)total+=amt;
+    });
+  });
+  return total;
+}
+function _pendingGoalAllocations(goalId){
+  let total=0;
+  const viewFirst=new Date(sy,sm,1);
+  const viewLast=new Date(sy,sm+1,0);
+  (data.s||[]).filter(s=>s.active!==false&&s._tp==='i'&&Array.isArray(s.allocations)&&s.allocations.length).forEach(s=>{
+    const nd=new Date(s.next);
+    if(!(nd>=viewFirst&&nd<=viewLast))return;
+    const alreadyRenewed=(data.t||[]).some(t=>t._subId===s.id&&t.transfer&&new Date(t.d).getMonth()===sm&&new Date(t.d).getFullYear()===sy);
+    if(alreadyRenewed)return;
+    s.allocations.forEach(alloc=>{
+      if(alloc.type!=='goal'||alloc.id!==goalId)return;
+      if(alloc.effectiveFrom&&alloc.effectiveFrom>s.next)return;
+      const amt=_allocAmount(alloc,s.a);
+      if(amt>=0.01)total+=amt;
+    });
+  });
+  return total;
 }
 function _delSubAllocation(subId,i){
   const s=data.s.find(x=>x.id===subId);if(!s||!s.allocations)return;
