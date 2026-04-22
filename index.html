@@ -814,8 +814,8 @@ const CATS=[
   {name:'Enfants',icon:'👶',color:'#FFA726',type:'needs'},
   {name:'Abonnements',icon:'🔄',color:'#AB47BC',type:'wants'},
   {name:'Services',icon:'🔧',color:'#78909C',type:'needs'},
-  {name:'Épargne',icon:'◈',color:'#8EC8C8',type:'savings'},
-  {name:'Investissements',icon:'▲',color:'#7EC8A9',type:'savings'},
+  {name:'Épargne',icon:'🏦',color:'#8EC8C8',type:'savings'},
+  {name:'Investissements',icon:'📈',color:'#7EC8A9',type:'savings'},
   {name:'Autre',icon:'○',color:'#666',type:'wants'},
 ];
 const GOAL_ICONS=['🏖️','🚗','🏠','📱','💍','✈️','📚','🎓','🏋️','💰','🆘','🎁','🛋️','🎸','👶'];
@@ -1153,19 +1153,21 @@ function changeMonth(delta){
 }
 function updateHeader(){document.getElementById('mLabel').textContent=MSH[sm]+' '+sy;}
 (function initSwipe(){
-  let sx=0,sy2=0,skip=false;
+  let sx=0,sy2=0,startT=0,skip=false;
   document.addEventListener('touchstart',e=>{
-    sx=e.touches[0].clientX;sy2=e.touches[0].clientY;
+    sx=e.touches[0].clientX;sy2=e.touches[0].clientY;startT=Date.now();
     const t=e.target;
-    // Skip on interactive elements, swipe-to-delete, sheets, calendar grid
-    skip=!!(t.closest('input,textarea,select,.sheet,.cal-grid,.cal-day,#importPreview,.modal,[contenteditable],.tx-swipe-wrap,.insights-scroll,.dash-goals-scroll'))
+    // Skip on interactive/scrollable elements, sheets, calendar grid, etc.
+    skip=!!(t.closest('input,textarea,select,.sheet,.cal-grid,.cal-day,#importPreview,.modal,[contenteditable],.tx-swipe-wrap,.insights-scroll,.dash-goals-scroll,.x-chips,.bud-grid,.bento-grid-v2,table,canvas'))
       || cv==='calendar' || cv==='import' || cv==='add';
   },{passive:true});
   document.addEventListener('touchend',e=>{
     if(skip)return;
     const dx=e.changedTouches[0].clientX-sx,dy=e.changedTouches[0].clientY-sy2;
-    // 80px min horizontal, ratio 2x over vertical
-    if(Math.abs(dx)>80&&Math.abs(dx)>Math.abs(dy)*2){
+    const dt=Date.now()-startT;
+    // Seuil plus strict : 140px min horizontal + ratio 3x vs vertical + geste max 800ms (rapide)
+    // Évite les faux-positifs lors des scrolls ou des gestes ambigus
+    if(Math.abs(dx)>140&&Math.abs(dx)>Math.abs(dy)*3&&dt<800){
       if(dx>0)changeMonth(-1);else changeMonth(1);
     }
   },{passive:true});
@@ -1219,37 +1221,66 @@ function mSubsTx(){
   const result=[];
   const viewM=sm, viewY=sy;
   const viewDate=new Date(viewY,viewM,1);
+  // Helper : projette les transferts d'allocations d'un sub income si pas déjà renouvelé
+  const projectAllocsFor=(s,mainDate,mainAmt)=>{
+    if(s._tp!=='i'||!Array.isArray(s.allocations)||!s.allocations.length)return;
+    // Si des transferts ont DÉJÀ été créés pour ce sub ce mois (via renouvellement réel), on skip
+    const alreadyRenewed=data.t.some(t=>t._subId===s.id&&t.transfer&&new Date(t.d).getMonth()===viewM&&new Date(t.d).getFullYear()===viewY);
+    if(alreadyRenewed)return;
+    s.allocations.forEach(alloc=>{
+      if(alloc.effectiveFrom&&alloc.effectiveFrom>mainDate)return;
+      const destExists=alloc.type==='asset'
+        ?(data.assets||[]).some(x=>x.id===alloc.id)
+        :(data.goals||[]).some(x=>x.id===alloc.id);
+      if(!destExists)return;
+      const xamt=_allocAmount(alloc,mainAmt);
+      if(xamt<0.01)return;
+      const destName=_transferLabel({type:alloc.type,id:alloc.id}).replace(/^[💎🎯]\s*/,'');
+      const modeLabel=(alloc.mode||'pct')==='amt'?`fixe ${fmtEur(alloc.amt)}`:`${alloc.pct}%`;
+      result.push({
+        id:'sub_xfer_'+s.id+'_'+alloc.id+'_'+viewY+viewM,
+        lb:`Transfert → ${destName} (${modeLabel})`,
+        a:xamt,c:'Épargne',d:mainDate,tp:'e',
+        transfer:{type:alloc.type,id:alloc.id},
+        _isSub:true,_sub:s,_subId:s.id,_auto:true,_isTransferProjection:true
+      });
+    });
+  };
   (data.s||[]).filter(s=>s.active!==false).forEach(s=>{
     const nd=new Date(s.next);
     const freq=s.freq||'monthly';
     const fDays=freqDays(freq);
-    // Borne : ne projeter qu'à partir du mois de la startDate (ou next date si pas de startDate)
     const origin=s.startDate?new Date(s.startDate):nd;
     const originM=origin.getFullYear()*12+origin.getMonth();
     const viewMabs=viewY*12+viewM;
-    if(viewMabs<originM) return; // mois vu est AVANT le début du sub → skip
+    if(viewMabs<originM) return;
     // Exact month match
     if(nd.getMonth()===viewM&&nd.getFullYear()===viewY){
       const amtAt=getSubAmountAt(s,s.next);
       result.push({id:'sub_'+s.id,lb:s.name,a:amtAt,c:s._cat||'Loisirs',d:s.next,tp:s._tp||'e',_isSub:true,_sub:s});
+      projectAllocsFor(s,s.next,amtAt);
       return;
     }
-    // Helpers
     const synthD=()=>{const day=nd.getDate(),max=new Date(viewY,viewM+1,0).getDate();return `${viewY}-${String(viewM+1).padStart(2,'0')}-${String(Math.min(day,max)).padStart(2,'0')}`;};
     const amtForView=()=>getSubAmountAt(s,synthD());
-    // Dedup par _subId (robuste aux montants custom) + fallback lb+amount (pour subs importés sans _subId)
     const noDup=()=>!data.t.some(t=>{
       const td=new Date(t.d);
       if(td.getMonth()!==viewM||td.getFullYear()!==viewY)return false;
-      if(t._subId===s.id)return true; // renouvellement direct → match
-      return t.lb===s.name&&Math.abs(t.a-amtForView())<0.5; // fallback heuristique
+      if(t._subId===s.id&&!t.transfer)return true;
+      return t.lb===s.name&&Math.abs(t.a-amtForView())<0.5;
     });
-    const push=()=>{if(noDup())result.push({id:'sub_auto_'+s.id+'_'+viewY+viewM,lb:s.name,a:amtForView(),c:s._cat||'Loisirs',d:synthD(),tp:s._tp||'e',_isSub:true,_sub:s,_auto:true});};
+    const push=()=>{
+      if(noDup()){
+        const mainAmt=amtForView();const mainDate=synthD();
+        result.push({id:'sub_auto_'+s.id+'_'+viewY+viewM,lb:s.name,a:mainAmt,c:s._cat||'Loisirs',d:mainDate,tp:s._tp||'e',_isSub:true,_sub:s,_auto:true});
+        projectAllocsFor(s,mainDate,mainAmt);
+      }
+    };
     const diff=(viewY-nd.getFullYear())*12+(viewM-nd.getMonth());
-    if(fDays<=31.5) push(); // monthly/weekly
-    else if(fDays<=92&&diff>=0&&diff%3===0) push(); // quarterly
-    else if(fDays<=183&&diff>=0&&diff%6===0) push(); // biannual
-    else if(fDays>183&&viewM===nd.getMonth()&&viewY>=nd.getFullYear()) push(); // yearly (borne année)
+    if(fDays<=31.5) push();
+    else if(fDays<=92&&diff>=0&&diff%3===0) push();
+    else if(fDays<=183&&diff>=0&&diff%6===0) push();
+    else if(fDays>183&&viewM===nd.getMonth()&&viewY>=nd.getFullYear()) push();
   });
   return result;
 }
@@ -1288,9 +1319,28 @@ function calcSoldeGlissant(targetM,targetY){
       if(inc){
         const synthDate=`${y}-${String(m+1).padStart(2,'0')}-${String(Math.min(nd.getDate(),new Date(y,m+1,0).getDate())).padStart(2,'0')}`;
         const amt=getSubAmountAt(s,synthDate);
-        // Dedup robuste : _subId en priorité, sinon fallback lb+amount
-        const dup=txM.some(t=>t._subId===s.id||(t.lb===s.name&&Math.abs(t.a-amt)<0.5));
-        if(!dup){if(s._tp==='i')solde+=amt;else solde-=amt;}
+        // Dedup robuste : _subId pour le sub principal (pas les transferts)
+        const dup=txM.some(t=>(t._subId===s.id&&!t.transfer)||(t.lb===s.name&&Math.abs(t.a-amt)<0.5));
+        if(!dup){
+          if(s._tp==='i'){
+            solde+=amt;
+            // Projette aussi les allocations si pas déjà renouvelées (donc pas déjà comptées comme tx manuelles)
+            const alreadyRenewed=txM.some(t=>t._subId===s.id&&t.transfer);
+            if(!alreadyRenewed&&Array.isArray(s.allocations)){
+              s.allocations.forEach(alloc=>{
+                if(alloc.effectiveFrom&&alloc.effectiveFrom>synthDate)return;
+                const destExists=alloc.type==='asset'
+                  ?(data.assets||[]).some(x=>x.id===alloc.id)
+                  :(data.goals||[]).some(x=>x.id===alloc.id);
+                if(!destExists)return;
+                const xamt=_allocAmount(alloc,amt);
+                if(xamt>=0.01)solde-=xamt;
+              });
+            }
+          }else{
+            solde-=amt;
+          }
+        }
       }
     });
     m++;if(m>11){m=0;y++;}
@@ -2555,21 +2605,23 @@ function _renewPreviewUpdate(id){
   if(!Array.isArray(s.allocations)||!s.allocations.length){el.textContent='';return;}
   const amt=parseInput(document.getElementById('renewAmt')?.value)||s.a;
   const renewDate=document.getElementById('renewDate')?.value||s.next;
-  // Filtrer les allocations actives à cette date
-  const activeAllocs=s.allocations.filter(a=>a.pct>0&&(!a.effectiveFrom||a.effectiveFrom<=renewDate));
-  const pendingAllocs=s.allocations.filter(a=>a.pct>0&&a.effectiveFrom&&a.effectiveFrom>renewDate);
+  const hasValue=a=>((a.mode||'pct')==='pct'?(a.pct||0)>0:(a.amt||0)>0);
+  const activeAllocs=s.allocations.filter(a=>hasValue(a)&&(!a.effectiveFrom||a.effectiveFrom<=renewDate));
+  const pendingAllocs=s.allocations.filter(a=>hasValue(a)&&a.effectiveFrom&&a.effectiveFrom>renewDate);
   const lines=activeAllocs.map(a=>{
     const destName=_transferLabel({type:a.type,id:a.id}).replace(/^[💎🎯]\s*/,'');
     const icon=a.type==='asset'?'💎':'🎯';
-    const tAmt=amt*a.pct/100;
-    return `<div>${icon} ${esc(destName)} · ${a.pct}% → ${fmtEur(tAmt)}</div>`;
+    const tAmt=_allocAmount(a,amt);
+    const modeLabel=(a.mode||'pct')==='amt'?`${fmtEur(a.amt)} fixe`:`${a.pct}%`;
+    return `<div>${icon} ${esc(destName)} · ${modeLabel} → ${fmtEur(tAmt)}</div>`;
   }).join('');
   const pendingLines=pendingAllocs.map(a=>{
     const destName=_transferLabel({type:a.type,id:a.id}).replace(/^[💎🎯]\s*/,'');
-    return `<div style="opacity:.5">⏳ ${esc(destName)} · ${a.pct}% (active à partir du ${a.effectiveFrom})</div>`;
+    const modeLabel=(a.mode||'pct')==='amt'?`${fmtEur(a.amt)} fixe`:`${a.pct}%`;
+    return `<div style="opacity:.5">⏳ ${esc(destName)} · ${modeLabel} (active dès ${a.effectiveFrom})</div>`;
   }).join('');
-  const totalPct=activeAllocs.reduce((sum,a)=>sum+(Number(a.pct)||0),0);
-  const restant=amt*(100-totalPct)/100;
+  const totalReparti=activeAllocs.reduce((sum,a)=>sum+_allocAmount(a,amt),0);
+  const restant=Math.max(0,amt-totalReparti);
   el.innerHTML=lines+pendingLines+`<div style="margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,.04);color:var(--green)">↳ ${fmtEur(restant)} sur compte courant</div>`;
 }
 function _confirmRenewSub(id){
@@ -2597,19 +2649,19 @@ function _confirmRenewSub(id){
   let transfersCreated=0;
   if((s._tp||'e')==='i'&&Array.isArray(s.allocations)&&s.allocations.length){
     s.allocations.forEach(alloc=>{
-      if(!alloc.pct||alloc.pct<=0)return;
-      if(alloc.effectiveFrom&&alloc.effectiveFrom>date)return; // règle pas encore active à cette date
+      if(alloc.effectiveFrom&&alloc.effectiveFrom>date)return;
       const destExists=alloc.type==='asset'
         ?(data.assets||[]).some(x=>x.id===alloc.id)
         :(data.goals||[]).some(x=>x.id===alloc.id);
       if(!destExists)return;
-      const xamt=customAmt*alloc.pct/100;
+      const xamt=_allocAmount(alloc,customAmt);
       if(xamt<0.01)return;
       const destName=_transferLabel({type:alloc.type,id:alloc.id}).replace(/^[💎🎯]\s*/,'');
+      const modeLabel=(alloc.mode||'pct')==='amt'?`fixe ${fmtEur(alloc.amt)}`:`${alloc.pct}%`;
       const xferTx={
         id:gid(),
-        lb:`Transfert → ${destName} (${alloc.pct}%)`,
-        a:xamt,c:'Autre',d:date,tp:'e',
+        lb:`Transfert → ${destName} (${modeLabel})`,
+        a:xamt,c:'Épargne',d:date,tp:'e',
         transfer:{type:alloc.type,id:alloc.id},
         _subId:s.id,_fromSubInc:mainTx.id
       };
@@ -4207,7 +4259,9 @@ function _renderSubAllocations(s){
   const todayISO=new Date().toISOString().slice(0,10);
   const rows=allocs.map((a,i)=>{
     const selKey=`${a.type}:${a.id}`;
-    const amt=s.a*(a.pct||0)/100;
+    const mode=a.mode||'pct';
+    // Montant effectif pour l'affichage
+    const computedAmt=mode==='amt'?(a.amt||0):(s.a*(a.pct||0)/100);
     const effFrom=a.effectiveFrom||'';
     const effDate=effFrom?new Date(effFrom):null;
     const now=new Date();
@@ -4217,11 +4271,18 @@ function _renderSubAllocations(s){
         ?`⏳ Active à partir du ${effDate.toLocaleDateString('fr-FR',{day:'numeric',month:'short',year:'numeric'})}`
         :`✓ Active depuis le ${effDate.toLocaleDateString('fr-FR',{day:'numeric',month:'short',year:'numeric'})}`)
       :'✓ Active dès le prochain renouvellement';
+    const modeHint=mode==='pct'?`${a.pct||0}% de ${fmtEur(s.a)}`:`${fmtEur(a.amt||0)} fixe`;
     return `<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04)">
       <div style="display:flex;gap:6px;align-items:center">
         <select id="sAllocDest_${s.id}_${i}" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:11px;padding:6px;border-radius:6px">${destOptions(selKey)}</select>
-        <input id="sAllocPct_${s.id}_${i}" type="number" min="0" max="100" step="0.5" value="${a.pct||0}" style="width:58px;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:12px;padding:6px;border-radius:6px;text-align:right">
-        <span class="mono xs" style="color:var(--dim)">%</span>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
+        <div style="display:flex;gap:2px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:2px;flex-shrink:0">
+          <button type="button" id="sAllocModePct_${s.id}_${i}" onclick="_setAllocMode('${s.id}',${i},'pct')" style="padding:4px 8px;border-radius:4px;border:none;background:${mode==='pct'?'rgba(129,140,248,.2)':'transparent'};color:${mode==='pct'?'var(--gold)':'var(--dim)'};font-family:var(--mono);font-size:10px;font-weight:700;cursor:pointer">%</button>
+          <button type="button" id="sAllocModeAmt_${s.id}_${i}" onclick="_setAllocMode('${s.id}',${i},'amt')" style="padding:4px 8px;border-radius:4px;border:none;background:${mode==='amt'?'rgba(129,140,248,.2)':'transparent'};color:${mode==='amt'?'var(--gold)':'var(--dim)'};font-family:var(--mono);font-size:10px;font-weight:700;cursor:pointer">${curSymbol()}</button>
+        </div>
+        <input id="sAllocValue_${s.id}_${i}" type="text" inputmode="decimal" value="${mode==='pct'?(a.pct||0):(a.amt||0).toString().replace('.',',')}" placeholder="${mode==='pct'?'15':'350'}" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:12px;padding:6px 8px;border-radius:6px;text-align:right">
+        <span class="mono xs" style="color:var(--dim);width:14px;text-align:center">${mode==='pct'?'%':curSymbol()}</span>
       </div>
       <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
         <span class="mono xxs" style="color:var(--muted);white-space:nowrap">à partir de</span>
@@ -4231,22 +4292,22 @@ function _renderSubAllocations(s){
         <button type="button" onclick="_applySubAllocEdit('${s.id}',${i})" style="flex:1;background:rgba(126,200,169,.15);border:1px solid rgba(126,200,169,.35);color:var(--green);font-family:var(--mono);font-size:10px;padding:5px;cursor:pointer;border-radius:6px">✓ Appliquer</button>
         <button type="button" onclick="_delSubAllocation('${s.id}',${i})" style="background:rgba(200,126,160,.1);border:1px solid rgba(200,126,160,.3);color:var(--pink);font-family:var(--mono);font-size:10px;padding:5px 10px;cursor:pointer;border-radius:6px">×</button>
       </div>
-      <div class="mono xxs" style="color:${isPending?'#FFAA44':'var(--muted)'};margin-top:4px">${statusText} · ≈ ${fmtEur(amt)}/renouv.</div>
+      <div class="mono xxs" style="color:${isPending?'#FFAA44':'var(--muted)'};margin-top:4px">${statusText} · ${modeHint} = ${fmtEur(computedAmt)}/renouv.</div>
     </div>`;
   }).join('');
   const todayIso=new Date().toISOString().slice(0,10);
   const activeAllocs=allocs.filter(a=>!a.effectiveFrom||a.effectiveFrom<=todayIso);
-  const totalPct=activeAllocs.reduce((sum,a)=>sum+(Number(a.pct)||0),0);
-  const repartMontant=s.a*totalPct/100;
+  const repartMontant=activeAllocs.reduce((sum,a)=>sum+_allocAmount(a,s.a),0);
+  const totalPctEquiv=s.a>0?Math.round(repartMontant/s.a*100):0;
   const firstDest=assets.length?`asset:${assets[0].id}`:`goal:${goals[0].id}`;
   return `<div style="background:rgba(129,140,248,.06);border:1px solid rgba(129,140,248,.2);border-radius:var(--Rs);padding:12px;margin-top:4px">
     <div class="card-t" style="margin-bottom:8px;font-size:10px;display:flex;justify-content:space-between;align-items:center">💎 Répartition auto à chaque renouvellement
-      ${allocs.length?`<span class="mono xxs" style="color:${totalPct>100?'var(--red)':'var(--muted)'};font-weight:400">${totalPct}%</span>`:''}
+      ${allocs.length?`<span class="mono xxs" style="color:${totalPctEquiv>100?'var(--red)':'var(--muted)'};font-weight:400">${totalPctEquiv}%</span>`:''}
     </div>
     ${allocs.length?rows:'<div class="mono xxs" style="color:var(--muted);margin-bottom:8px">Aucune règle active.</div>'}
     <button type="button" onclick="_addSubAllocation('${s.id}','${firstDest}')" style="width:100%;background:none;border:1px dashed var(--border2);color:var(--dim);font-family:var(--mono);font-size:10px;padding:7px;cursor:pointer;border-radius:6px;margin-top:${allocs.length?'8px':'0'}">+ Ajouter une règle</button>
     ${!assets.length?`<button type="button" onclick="closeSheet();navTo('patrimoine')" style="width:100%;background:rgba(126,200,169,.08);border:1px dashed rgba(126,200,169,.3);color:var(--green);font-family:var(--mono);font-size:10px;padding:7px;cursor:pointer;border-radius:6px;margin-top:6px">💎 Pas encore d'épargne ? Créer un actif →</button>`:''}
-    ${allocs.length?`<div class="mono xxs" style="color:var(--muted);margin-top:8px;line-height:1.5">À chaque renouvellement : ${fmtEur(s.a)} reçu → <span style="color:var(--blue)">${fmtEur(repartMontant)}</span> transférés · <span style="color:var(--green)">${fmtEur(s.a-repartMontant)}</span> sur compte courant</div>`:''}
+    ${allocs.length?`<div class="mono xxs" style="color:var(--muted);margin-top:8px;line-height:1.5">À chaque renouvellement : ${fmtEur(s.a)} reçu → <span style="color:var(--blue)">${fmtEur(repartMontant)}</span> transférés · <span style="color:var(--green)">${fmtEur(Math.max(0,s.a-repartMontant))}</span> sur compte courant</div>`:''}
   </div>`;
 }
 // Re-render in place de la section allocations / priceHistory sans fermer la sheet
@@ -4265,25 +4326,51 @@ function _addSubAllocation(subId,defaultDest){
   const s=data.s.find(x=>x.id===subId);if(!s)return;
   const [type,id]=defaultDest.split(':');
   if(!s.allocations)s.allocations=[];
-  // effectiveFrom vide par défaut = actif dès maintenant
-  s.allocations.push({type,id,pct:10,effectiveFrom:''});
+  // Par défaut : mode pourcentage 10%, actif dès maintenant
+  s.allocations.push({type,id,mode:'pct',pct:10,amt:0,effectiveFrom:''});
+  save();
+  _refreshSubEditSheet(subId);
+}
+function _setAllocMode(subId,i,mode){
+  const s=data.s.find(x=>x.id===subId);if(!s||!s.allocations||!s.allocations[i])return;
+  // Sauvegarde la valeur courante avant de changer de mode
+  const valEl=document.getElementById(`sAllocValue_${subId}_${i}`);
+  if(valEl){
+    const cur=parseFloat((valEl.value||'0').replace(',','.'))||0;
+    const oldMode=s.allocations[i].mode||'pct';
+    if(oldMode==='pct')s.allocations[i].pct=cur;
+    else s.allocations[i].amt=cur;
+  }
+  s.allocations[i].mode=mode;
   save();
   _refreshSubEditSheet(subId);
 }
 function _applySubAllocEdit(subId,i){
   const s=data.s.find(x=>x.id===subId);if(!s||!s.allocations||!s.allocations[i])return;
   const destEl=document.getElementById(`sAllocDest_${subId}_${i}`);
-  const pctEl=document.getElementById(`sAllocPct_${subId}_${i}`);
+  const valEl=document.getElementById(`sAllocValue_${subId}_${i}`);
   const dateEl=document.getElementById(`sAllocDate_${subId}_${i}`);
-  if(!destEl||!pctEl)return;
+  if(!destEl||!valEl)return;
   const [type,id]=destEl.value.split(':');
-  const pct=Math.max(0,Math.min(parseFloat(pctEl.value)||0,100));
+  const mode=s.allocations[i].mode||'pct';
+  const rawVal=parseFloat((valEl.value||'0').replace(',','.'))||0;
+  const value=mode==='pct'?Math.max(0,Math.min(rawVal,100)):Math.max(0,rawVal);
   const effectiveFrom=dateEl?dateEl.value:'';
-  s.allocations[i]={type,id,pct,effectiveFrom};
+  const newAlloc={type,id,mode,effectiveFrom};
+  if(mode==='pct')newAlloc.pct=value;
+  else newAlloc.amt=value;
+  s.allocations[i]=newAlloc;
   save();
-  const effMsg=effectiveFrom?(new Date(effectiveFrom)>new Date()?' (active à partir du '+effectiveFrom+')':' (active depuis le '+effectiveFrom+')'):'';
+  const effMsg=effectiveFrom?(new Date(effectiveFrom)>new Date()?' (active dès '+effectiveFrom+')':' (active depuis '+effectiveFrom+')'):'';
   toast('Règle mise à jour'+effMsg);
   _refreshSubEditSheet(subId);
+}
+// Helper central : calcule le montant d'une allocation selon son mode
+function _allocAmount(alloc,mainAmt){
+  if(!alloc)return 0;
+  const mode=alloc.mode||'pct';
+  if(mode==='amt')return Math.max(0,alloc.amt||0);
+  return Math.max(0,mainAmt*(alloc.pct||0)/100);
 }
 function _delSubAllocation(subId,i){
   const s=data.s.find(x=>x.id===subId);if(!s||!s.allocations)return;
@@ -5859,7 +5946,7 @@ function confirmImport(){
           id:gid(),
           lb:`Transfert → ${destName} (${alloc.pct}%)`,
           a:amt,
-          c:'Autre',
+          c:'Épargne',
           d:r.date,
           tp:'e',
           transfer:{type:alloc.type,id:alloc.id},
