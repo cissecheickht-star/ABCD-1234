@@ -1237,7 +1237,13 @@ function mSubsTx(){
     // Helpers
     const synthD=()=>{const day=nd.getDate(),max=new Date(viewY,viewM+1,0).getDate();return `${viewY}-${String(viewM+1).padStart(2,'0')}-${String(Math.min(day,max)).padStart(2,'0')}`;};
     const amtForView=()=>getSubAmountAt(s,synthD());
-    const noDup=()=>!data.t.some(t=>{const td=new Date(t.d);return td.getMonth()===viewM&&td.getFullYear()===viewY&&t.lb===s.name&&Math.abs(t.a-amtForView())<0.5;});
+    // Dedup par _subId (robuste aux montants custom) + fallback lb+amount (pour subs importés sans _subId)
+    const noDup=()=>!data.t.some(t=>{
+      const td=new Date(t.d);
+      if(td.getMonth()!==viewM||td.getFullYear()!==viewY)return false;
+      if(t._subId===s.id)return true; // renouvellement direct → match
+      return t.lb===s.name&&Math.abs(t.a-amtForView())<0.5; // fallback heuristique
+    });
     const push=()=>{if(noDup())result.push({id:'sub_auto_'+s.id+'_'+viewY+viewM,lb:s.name,a:amtForView(),c:s._cat||'Loisirs',d:synthD(),tp:s._tp||'e',_isSub:true,_sub:s,_auto:true});};
     const diff=(viewY-nd.getFullYear())*12+(viewM-nd.getMonth());
     if(fDays<=31.5) push(); // monthly/weekly
@@ -1282,7 +1288,8 @@ function calcSoldeGlissant(targetM,targetY){
       if(inc){
         const synthDate=`${y}-${String(m+1).padStart(2,'0')}-${String(Math.min(nd.getDate(),new Date(y,m+1,0).getDate())).padStart(2,'0')}`;
         const amt=getSubAmountAt(s,synthDate);
-        const dup=txM.some(t=>t.lb===s.name&&Math.abs(t.a-amt)<0.5);
+        // Dedup robuste : _subId en priorité, sinon fallback lb+amount
+        const dup=txM.some(t=>t._subId===s.id||(t.lb===s.name&&Math.abs(t.a-amt)<0.5));
         if(!dup){if(s._tp==='i')solde+=amt;else solde-=amt;}
       }
     });
@@ -1994,10 +2001,10 @@ function rDash(){
       else if(fDays<=183){const diff=(yy-nd.getFullYear())*12+(mm-nd.getMonth());shouldInclude=diff>=0&&diff%6===0;}
       else{shouldInclude=mm===nd.getMonth();}
       if(shouldInclude){
-        // Vérifier pas de doublon avec transaction manuelle
         const monthDate=`${yy}-${String(mm+1).padStart(2,'0')}-15`;
         const amtHist=getSubAmountAt(s,monthDate);
-        const dup=ts.some(t=>t.lb===s.name&&Math.abs(t.a-amtHist)<0.5);
+        // Dedup robuste : _subId en priorité
+        const dup=ts.some(t=>t._subId===s.id||(t.lb===s.name&&Math.abs(t.a-amtHist)<0.5));
         if(!dup){if(s._tp==='i') subInc+=amtHist; else subExp+=amtHist;}
       }
     });
@@ -2008,9 +2015,12 @@ function rDash(){
   window._lastM6=m6;
   window._lastByCat=byCat;
   // 50/30/20
-  const needs=txs.filter(t=>t.tp==='e'&&gc(t.c).type==='needs').reduce((s,t)=>s+t.a,0);
-  const wants=txs.filter(t=>t.tp==='e'&&gc(t.c).type==='wants').reduce((s,t)=>s+t.a,0);
-  const savgs=txs.filter(t=>t.tp==='e'&&gc(t.c).type==='savings').reduce((s,t)=>s+t.a,0);
+  // 50/30/20 : les transferts vers épargne/objectifs comptent comme "Épargne" même si leur cat est "Autre"
+  const needs=txs.filter(t=>t.tp==='e'&&!t.transfer&&gc(t.c).type==='needs').reduce((s,t)=>s+t.a,0);
+  const wants=txs.filter(t=>t.tp==='e'&&!t.transfer&&gc(t.c).type==='wants').reduce((s,t)=>s+t.a,0);
+  const savgsFromCat=txs.filter(t=>t.tp==='e'&&!t.transfer&&gc(t.c).type==='savings').reduce((s,t)=>s+t.a,0);
+  const savgsFromXfer=txs.filter(t=>t.tp==='e'&&t.transfer).reduce((s,t)=>s+t.a,0);
+  const savgs=savgsFromCat+savgsFromXfer;
   const rule=inc>0&&kp.rule5030?`<div class="card"><div class="card-t">Règle 50/30/20</div>${ruleBar('Besoins',needs,inc*.5,inc,'#7EA9C8')}${ruleBar('Envies',wants,inc*.3,inc,'#A97EC8')}${ruleBar('Épargne',savgs,inc*.2,inc,'#7EC8A9')}<div class="mono xxs" style="color:var(--muted);margin-top:6px;line-height:1.6">Idéal : 50% besoins · 30% envies · 20% épargne</div></div>`:'';
   // Alerts
   const urgent=getUpcoming(3),soon2=getUpcoming(7).filter(s=>daysUntil(s.next)>3);
@@ -2086,7 +2096,21 @@ function rDash(){
   const projHtml=kp.projection?`<div class="card"><div class="card-t">Projection du solde sur 12 mois</div><canvas id="projChart" style="width:100%;max-height:200px"></canvas><div style="display:flex;justify-content:space-between;margin-top:8px"><span class="mono xxs" style="color:var(--muted)">Mois +1 : ${fmtEur(proj12[1]?.balance||0)}</span><span class="mono xxs" style="color:${(proj12[11]?.balance||0)>=0?'var(--green)':'var(--red)'}">Mois +12 : ${fmtEur(proj12[11]?.balance||0)}</span></div></div>`:'';
   // Reste à vivre (savings section)
   const rav=calcResteAVivre();
-  const ravHtml=rav.income>0&&kp.resteAVivre?`<div class="card savings-card"><div class="card-t">Épargne · Reste à vivre</div><div class="rav-big" style="color:${rav.reste>=0?'var(--green)':'var(--red)'}">${fmtEur(rav.reste)}<span class="mono xs" style="color:var(--dim);font-weight:400"> /mois</span></div><div style="margin-top:10px"><div class="rav-detail"><span class="mono xs" style="color:var(--dim)">↗ Revenus récurrents</span><span class="mono xs g">+${fmtEur(rav.income)}</span></div><div class="rav-detail"><span class="mono xs" style="color:var(--dim)">↘ Charges fixes</span><span class="mono xs p">−${fmtEur(rav.charges)}</span></div><div class="rav-detail"><span class="mono xs" style="color:var(--dim)">Taux d'épargne</span><span class="mono xs" style="color:var(--gold)">${rav.income>0?Math.round(rav.reste/rav.income*100):0}%</span></div></div></div>`:'';
+  const ravHtml=rav.income>0&&kp.resteAVivre?(()=>{
+    const d=rav.details||{};
+    const showDetail=(label,val,sign,color)=>val>0?`<div class="rav-detail" style="padding-left:10px"><span class="mono xxs" style="color:var(--muted)">${label}</span><span class="mono xxs" style="color:${color}">${sign}${fmtEur(val)}</span></div>`:'';
+    return `<div class="card savings-card"><div class="card-t">Épargne · Reste à vivre</div>
+      <div class="rav-big" style="color:${rav.reste>=0?'var(--green)':'var(--red)'}">${fmtEur(rav.reste)}<span class="mono xs" style="color:var(--dim);font-weight:400"> /mois</span></div>
+      <div style="margin-top:10px">
+        <div class="rav-detail"><span class="mono xs" style="color:var(--dim)">↗ Revenus récurrents</span><span class="mono xs g">+${fmtEur(d.moIncome||0)}</span></div>
+        ${showDetail('+ bonus / primes manuels','('+fmtEur(d.txManualInc||0)+')','',d.txManualInc>0?'var(--green)':'var(--muted)')}
+        <div class="rav-detail"><span class="mono xs" style="color:var(--dim)">↘ Charges récurrentes</span><span class="mono xs p">−${fmtEur(d.moExpense||0)}</span></div>
+        ${showDetail('+ remboursements dettes','('+fmtEur(d.moDebt||0)+')','',d.moDebt>0?'var(--pink)':'var(--muted)')}
+        ${showDetail('+ transferts épargne','('+fmtEur(d.txTransferMo||0)+')','',d.txTransferMo>0?'var(--purple)':'var(--muted)')}
+        <div class="rav-detail" style="border-top:1px solid rgba(255,255,255,.05);margin-top:4px;padding-top:4px"><span class="mono xs" style="color:var(--dim)">Taux d'épargne</span><span class="mono xs" style="color:var(--gold)">${rav.income>0?Math.round(rav.reste/rav.income*100):0}%</span></div>
+      </div>
+    </div>`;
+  })():'';
   // Recent
   const sortedAll=[...txs].sort((a,b)=>b.d.localeCompare(a.d));
   const recent=sortedAll.slice(0,4).map(t=>txRow(t)).join('');
@@ -2220,16 +2244,25 @@ function calcProjection12(){
   // Démarre depuis le solde glissant cumulé (pas juste le mois courant)
   const currentBalance=calcSoldeGlissant(sm,sy);
   const activeSubs=(data.s||[]).filter(s=>s.active!==false);
-  const moIncome=activeSubs.filter(s=>s._tp==='i').reduce((s,x)=>s+monthlyEquiv(x.a,x.freq),0);
-  const moExpense=activeSubs.filter(s=>s._tp!=='i').reduce((s,x)=>s+monthlyEquiv(x.a,x.freq),0);
   const moDebt=(data.debts||[]).filter(d=>d.val>0).reduce((s,d)=>s+(d.mensualite||0),0);
   const proj=[];
   let bal=currentBalance;
   for(let i=0;i<12;i++){
     const dt=new Date(sy,sm+i,1);
     const label=MSH[dt.getMonth()]+' '+String(dt.getFullYear()).slice(2);
-    if(i===0){proj.push({label,balance:bal});}
-    else{bal+=moIncome-moExpense-moDebt;proj.push({label,balance:Math.round(bal*100)/100});}
+    if(i===0){proj.push({label,balance:bal});continue;}
+    // Calcule revenus/dépenses mensuels à la date du mois projeté (tient compte de priceHistory)
+    const monthDate=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-15`;
+    const moIncomeAtMonth=activeSubs.filter(s=>s._tp==='i').reduce((s,x)=>{
+      const amt=getSubAmountAt(x,monthDate);
+      return s+monthlyEquiv(amt,x.freq);
+    },0);
+    const moExpenseAtMonth=activeSubs.filter(s=>s._tp!=='i').reduce((s,x)=>{
+      const amt=getSubAmountAt(x,monthDate);
+      return s+monthlyEquiv(amt,x.freq);
+    },0);
+    bal+=moIncomeAtMonth-moExpenseAtMonth-moDebt;
+    proj.push({label,balance:Math.round(bal*100)/100});
   }
   return proj;
 }
@@ -2245,16 +2278,21 @@ function renderProjectionChart(proj){
 // ── Calcul Reste à vivre ─────────────────────────────────
 function calcResteAVivre(){
   const activeSubs=(data.s||[]).filter(s=>s.active!==false);
+  // Revenus récurrents : somme monthlyEquiv de chaque revenu actif
   const moIncome=activeSubs.filter(s=>s._tp==='i').reduce((s,x)=>s+monthlyEquiv(x.a,x.freq),0);
+  // Charges fixes : abos/dépenses récurrents + mensualités de dettes
   const moExpense=activeSubs.filter(s=>s._tp!=='i').reduce((s,x)=>s+monthlyEquiv(x.a,x.freq),0);
   const moDebt=(data.debts||[]).filter(d=>d.val>0).reduce((s,d)=>s+(d.mensualite||0),0);
-  // Revenus manuels exceptionnels du mois (bonus, primes...) qui NE sont PAS dans les subs
-  const txs=mtxAll();
-  const txManualInc=txs.filter(t=>t.tp==='i'&&!t._isSub).reduce((s,t)=>s+t.a,0);
-  // Total = revenus récurrents + revenus exceptionnels manuels
+  // Revenus exceptionnels du mois : UNIQUEMENT les revenus manuels qui ne proviennent d'aucun sub
+  //   - !t._isSub exclut les subs projetées par mSubsTx
+  //   - !t._subId exclut les renouvellements de subs (sinon double comptage avec moIncome)
+  const thisMonthTx=data.t.filter(t=>{const d=new Date(t.d);return d.getMonth()===sm&&d.getFullYear()===sy;});
+  const txManualInc=thisMonthTx.filter(t=>t.tp==='i'&&!t._subId).reduce((s,t)=>s+t.a,0);
+  // Transferts vers épargne/objectifs : comptés comme charges fixes (argent déjà engagé)
+  const txTransferMo=thisMonthTx.filter(t=>t.tp==='e'&&t.transfer&&t._subId).reduce((s,t)=>s+t.a,0);
   const totalIncome=moIncome+txManualInc;
-  const totalCharges=moExpense+moDebt;
-  return {income:totalIncome,charges:totalCharges,reste:totalIncome-totalCharges,details:{moIncome,moExpense,moDebt,txManualInc}};
+  const totalCharges=moExpense+moDebt+txTransferMo;
+  return {income:totalIncome,charges:totalCharges,reste:totalIncome-totalCharges,details:{moIncome,moExpense,moDebt,txManualInc,txTransferMo}};
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2516,15 +2554,23 @@ function _renewPreviewUpdate(id){
   if(!el)return;
   if(!Array.isArray(s.allocations)||!s.allocations.length){el.textContent='';return;}
   const amt=parseInput(document.getElementById('renewAmt')?.value)||s.a;
-  const lines=s.allocations.filter(a=>a.pct>0).map(a=>{
+  const renewDate=document.getElementById('renewDate')?.value||s.next;
+  // Filtrer les allocations actives à cette date
+  const activeAllocs=s.allocations.filter(a=>a.pct>0&&(!a.effectiveFrom||a.effectiveFrom<=renewDate));
+  const pendingAllocs=s.allocations.filter(a=>a.pct>0&&a.effectiveFrom&&a.effectiveFrom>renewDate);
+  const lines=activeAllocs.map(a=>{
     const destName=_transferLabel({type:a.type,id:a.id}).replace(/^[💎🎯]\s*/,'');
     const icon=a.type==='asset'?'💎':'🎯';
     const tAmt=amt*a.pct/100;
     return `<div>${icon} ${esc(destName)} · ${a.pct}% → ${fmtEur(tAmt)}</div>`;
   }).join('');
-  const totalPct=s.allocations.reduce((sum,a)=>sum+(Number(a.pct)||0),0);
+  const pendingLines=pendingAllocs.map(a=>{
+    const destName=_transferLabel({type:a.type,id:a.id}).replace(/^[💎🎯]\s*/,'');
+    return `<div style="opacity:.5">⏳ ${esc(destName)} · ${a.pct}% (active à partir du ${a.effectiveFrom})</div>`;
+  }).join('');
+  const totalPct=activeAllocs.reduce((sum,a)=>sum+(Number(a.pct)||0),0);
   const restant=amt*(100-totalPct)/100;
-  el.innerHTML=lines+`<div style="margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,.04);color:var(--green)">↳ ${fmtEur(restant)} sur compte courant</div>`;
+  el.innerHTML=lines+pendingLines+`<div style="margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,.04);color:var(--green)">↳ ${fmtEur(restant)} sur compte courant</div>`;
 }
 function _confirmRenewSub(id){
   const s=data.s.find(x=>x.id===id);if(!s)return;
@@ -2547,10 +2593,12 @@ function _confirmRenewSub(id){
   const mainTx={id:gid(),lb:s.name,a:customAmt,c:s._cat||'Loisirs',d:date,tp:s._tp||'e',_subId:s.id};
   data.t.unshift(mainTx);
   // Allocations auto (basées sur le montant custom de cette occurrence)
+  // N'applique que les règles dont effectiveFrom <= date du renouvellement (ou vide = toujours active)
   let transfersCreated=0;
   if((s._tp||'e')==='i'&&Array.isArray(s.allocations)&&s.allocations.length){
     s.allocations.forEach(alloc=>{
       if(!alloc.pct||alloc.pct<=0)return;
+      if(alloc.effectiveFrom&&alloc.effectiveFrom>date)return; // règle pas encore active à cette date
       const destExists=alloc.type==='asset'
         ?(data.assets||[]).some(x=>x.id===alloc.id)
         :(data.goals||[]).some(x=>x.id===alloc.id);
@@ -2849,11 +2897,12 @@ function calcDebtStats(){
   const totalBorrowed=debts.reduce((s,d)=>s+(d.borrowed||d.val),0);
   const totalPaid=totalBorrowed-totalRemaining;
   const pctPaid=totalBorrowed>0?Math.round(totalPaid/totalBorrowed*100):0;
-  // Taux d'endettement = mensualités / revenus récurrents
+  // Taux d'endettement = mensualités / revenus mensuels
+  // Revenus = max(récurrents actifs, revenus manuels du mois sélectionné hors renouvellements)
   const activeSubs=(data.s||[]).filter(s=>s.active!==false);
   const moIncome=activeSubs.filter(s=>s._tp==='i').reduce((s,x)=>s+monthlyEquiv(x.a,x.freq),0);
-  const txInc=data.t.filter(t=>{const d=new Date(t.d);return d.getMonth()===new Date().getMonth()&&d.getFullYear()===new Date().getFullYear()&&t.tp==='i';}).reduce((s,t)=>s+t.a,0);
-  const bestIncome=Math.max(moIncome,txInc);
+  const txInc=data.t.filter(t=>{const d=new Date(t.d);return d.getMonth()===sm&&d.getFullYear()===sy&&t.tp==='i'&&!t._subId;}).reduce((s,t)=>s+t.a,0);
+  const bestIncome=Math.max(moIncome,moIncome+txInc); // récurrents + exceptionnels (jamais moins que récurrents seuls)
   const tauxEndettement=bestIncome>0?Math.round(totalMensualite/bestIncome*100):0;
   return{totalRemaining,totalMensualite,totalBorrowed,totalPaid,pctPaid,tauxEndettement,bestIncome};
 }
@@ -4155,23 +4204,39 @@ function _renderSubAllocations(s){
     if(goals.length)opts+=`<optgroup label="🎯 Objectifs">${goals.map(g=>`<option value="goal:${g.id}"${selKey===`goal:${g.id}`?' selected':''}>🎯 ${esc(g.name)}</option>`).join('')}</optgroup>`;
     return opts;
   };
+  const todayISO=new Date().toISOString().slice(0,10);
   const rows=allocs.map((a,i)=>{
     const selKey=`${a.type}:${a.id}`;
     const amt=s.a*(a.pct||0)/100;
-    return `<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+    const effFrom=a.effectiveFrom||'';
+    const effDate=effFrom?new Date(effFrom):null;
+    const now=new Date();
+    const isPending=effDate&&effDate>now;
+    const statusText=effFrom
+      ?(isPending
+        ?`⏳ Active à partir du ${effDate.toLocaleDateString('fr-FR',{day:'numeric',month:'short',year:'numeric'})}`
+        :`✓ Active depuis le ${effDate.toLocaleDateString('fr-FR',{day:'numeric',month:'short',year:'numeric'})}`)
+      :'✓ Active dès le prochain renouvellement';
+    return `<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04)">
       <div style="display:flex;gap:6px;align-items:center">
         <select id="sAllocDest_${s.id}_${i}" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:11px;padding:6px;border-radius:6px">${destOptions(selKey)}</select>
         <input id="sAllocPct_${s.id}_${i}" type="number" min="0" max="100" step="0.5" value="${a.pct||0}" style="width:58px;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:12px;padding:6px;border-radius:6px;text-align:right">
         <span class="mono xs" style="color:var(--dim)">%</span>
       </div>
-      <div style="display:flex;gap:6px;margin-top:6px">
-        <button onclick="_applySubAllocEdit('${s.id}',${i})" style="flex:1;background:rgba(126,200,169,.15);border:1px solid rgba(126,200,169,.35);color:var(--green);font-family:var(--mono);font-size:10px;padding:5px;cursor:pointer;border-radius:6px">✓ Appliquer</button>
-        <button onclick="_delSubAllocation('${s.id}',${i})" style="background:rgba(200,126,160,.1);border:1px solid rgba(200,126,160,.3);color:var(--pink);font-family:var(--mono);font-size:10px;padding:5px 10px;cursor:pointer;border-radius:6px">×</button>
+      <div style="display:flex;gap:6px;align-items:center;margin-top:6px">
+        <span class="mono xxs" style="color:var(--muted);white-space:nowrap">à partir de</span>
+        <input id="sAllocDate_${s.id}_${i}" type="date" value="${effFrom}" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:11px;padding:6px;border-radius:6px">
       </div>
-      <div class="mono xxs" style="color:var(--muted);margin-top:4px">≈ ${fmtEur(amt)} par renouvellement</div>
+      <div style="display:flex;gap:6px;margin-top:6px">
+        <button type="button" onclick="_applySubAllocEdit('${s.id}',${i})" style="flex:1;background:rgba(126,200,169,.15);border:1px solid rgba(126,200,169,.35);color:var(--green);font-family:var(--mono);font-size:10px;padding:5px;cursor:pointer;border-radius:6px">✓ Appliquer</button>
+        <button type="button" onclick="_delSubAllocation('${s.id}',${i})" style="background:rgba(200,126,160,.1);border:1px solid rgba(200,126,160,.3);color:var(--pink);font-family:var(--mono);font-size:10px;padding:5px 10px;cursor:pointer;border-radius:6px">×</button>
+      </div>
+      <div class="mono xxs" style="color:${isPending?'#FFAA44':'var(--muted)'};margin-top:4px">${statusText} · ≈ ${fmtEur(amt)}/renouv.</div>
     </div>`;
   }).join('');
-  const totalPct=allocs.reduce((sum,a)=>sum+(Number(a.pct)||0),0);
+  const todayIso=new Date().toISOString().slice(0,10);
+  const activeAllocs=allocs.filter(a=>!a.effectiveFrom||a.effectiveFrom<=todayIso);
+  const totalPct=activeAllocs.reduce((sum,a)=>sum+(Number(a.pct)||0),0);
   const repartMontant=s.a*totalPct/100;
   const firstDest=assets.length?`asset:${assets[0].id}`:`goal:${goals[0].id}`;
   return `<div style="background:rgba(129,140,248,.06);border:1px solid rgba(129,140,248,.2);border-radius:var(--Rs);padding:12px;margin-top:4px">
@@ -4200,7 +4265,8 @@ function _addSubAllocation(subId,defaultDest){
   const s=data.s.find(x=>x.id===subId);if(!s)return;
   const [type,id]=defaultDest.split(':');
   if(!s.allocations)s.allocations=[];
-  s.allocations.push({type,id,pct:10});
+  // effectiveFrom vide par défaut = actif dès maintenant
+  s.allocations.push({type,id,pct:10,effectiveFrom:''});
   save();
   _refreshSubEditSheet(subId);
 }
@@ -4208,12 +4274,15 @@ function _applySubAllocEdit(subId,i){
   const s=data.s.find(x=>x.id===subId);if(!s||!s.allocations||!s.allocations[i])return;
   const destEl=document.getElementById(`sAllocDest_${subId}_${i}`);
   const pctEl=document.getElementById(`sAllocPct_${subId}_${i}`);
+  const dateEl=document.getElementById(`sAllocDate_${subId}_${i}`);
   if(!destEl||!pctEl)return;
   const [type,id]=destEl.value.split(':');
   const pct=Math.max(0,Math.min(parseFloat(pctEl.value)||0,100));
-  s.allocations[i]={type,id,pct};
+  const effectiveFrom=dateEl?dateEl.value:'';
+  s.allocations[i]={type,id,pct,effectiveFrom};
   save();
-  toast('Règle mise à jour');
+  const effMsg=effectiveFrom?(new Date(effectiveFrom)>new Date()?' (active à partir du '+effectiveFrom+')':' (active depuis le '+effectiveFrom+')'):'';
+  toast('Règle mise à jour'+effMsg);
   _refreshSubEditSheet(subId);
 }
 function _delSubAllocation(subId,i){
