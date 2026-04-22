@@ -1292,6 +1292,69 @@ function mSubsTx(){
 }
 function mtxAll(){return [...mtx(),...mSubsTx()];}
 // Calcul du solde cumulé depuis le 1er mois avec des données
+// Solde RÉEL (banque) : cumul des tx réellement enregistrées dans data.t jusqu'à aujourd'hui.
+// Représente ce qui est effectivement sur le compte courant MAINTENANT.
+function calcSoldeReel(){
+  const todayStr=new Date().toISOString().slice(0,10);
+  return (data.t||[]).filter(t=>t.d<=todayStr).reduce((acc,t)=>{
+    return acc+(t.tp==='i'?t.a:-t.a);
+  },0);
+}
+// Solde À DATE : cumul des tx réelles jusqu'à la date cible + projection des subs entre
+// aujourd'hui et la date cible (si elle est dans le futur). Permet de répondre à "combien
+// j'aurai le 28 avril avant/après mon salaire ?".
+function calcSoldeAtDate(targetDateStr){
+  if(!targetDateStr)return calcSoldeReel();
+  // 1. Somme des tx réelles dont d <= targetDate
+  let bal=(data.t||[]).filter(t=>t.d<=targetDateStr).reduce((acc,t)=>acc+(t.tp==='i'?t.a:-t.a),0);
+  // 2. Si la date cible est aujourd'hui ou dans le passé → on s'arrête là
+  const now=new Date();now.setHours(0,0,0,0);
+  const target=new Date(targetDateStr+'T23:59:59');
+  if(target<=now)return Math.round(bal*100)/100;
+  // 3. Projette les subs entre demain et target
+  const activeSubs=(data.s||[]).filter(s=>s.active!==false);
+  activeSubs.forEach(s=>{
+    let ndStr=s.next;
+    let guard=0;
+    while(ndStr&&guard<400){
+      guard++;
+      const nd=new Date(ndStr+'T12:00:00');
+      if(nd>target)break;
+      if(nd>now){
+        // Pas déjà dans data.t ?
+        const alreadyIn=(data.t||[]).some(t=>t._subId===s.id&&!t.transfer&&t.d===ndStr);
+        if(!alreadyIn){
+          const amt=getSubAmountAt(s,ndStr);
+          if(s._tp==='i')bal+=amt;else bal-=amt;
+          // Allocations pour les revenus
+          if(s._tp==='i'&&Array.isArray(s.allocations)){
+            s.allocations.forEach(alloc=>{
+              if(alloc.effectiveFrom&&alloc.effectiveFrom>ndStr)return;
+              const destExists=alloc.type==='asset'
+                ?(data.assets||[]).some(x=>x.id===alloc.id)
+                :(data.goals||[]).some(x=>x.id===alloc.id);
+              if(!destExists)return;
+              const xamt=_allocAmount(alloc,amt);
+              if(xamt>=0.01)bal-=xamt;
+            });
+          }
+        }
+      }
+      ndStr=advanceNext(ndStr,s.freq||'monthly');
+    }
+  });
+  return Math.round(bal*100)/100;
+}
+// Alias de compatibilité — utilisé par le hero pour les mois passés/futurs
+function calcSoldeProjete(targetM,targetY){
+  targetM=targetM??sm;targetY=targetY??sy;
+  const now=new Date();
+  const isCurrentMonth=(targetM===now.getMonth()&&targetY===now.getFullYear());
+  if(!isCurrentMonth)return calcSoldeGlissant(targetM,targetY);
+  // Mois courant : solde à date = fin du mois
+  const endOfMonth=new Date(targetY,targetM+1,0);
+  return calcSoldeAtDate(endOfMonth.toISOString().slice(0,10));
+}
 function calcSoldeGlissant(targetM,targetY){
   // Trouver le mois le plus ancien
   const allDates=(data.t||[]).map(t=>new Date(t.d));
@@ -1473,6 +1536,13 @@ function _animateNum(el,target,opts){
     else el.textContent=prefix+fmt(target)+suffix;
   }
   requestAnimationFrame(step);
+}
+// Change la date du hero (solde à date) et re-render le dashboard
+function _setHeroDate(dateStr){
+  if(!dateStr)return;
+  window._heroDate=dateStr;
+  // Re-render juste le hero serait l'idéal, mais le dashboard entier est lié → render complet
+  render();
 }
 function _animateDashCounters(){
   try{
@@ -2192,10 +2262,51 @@ function rDash(){
     if(Math.abs(delta)<5)return'<div class="hero-dark-delta" style="color:var(--muted)">≈ stable vs mois précédent</div>';
     return`<div class="hero-dark-delta ${delta>=0?'g':'p'}">${delta>=0?'📈':'📉'} ${delta>=0?'+':''}${fmtEur(delta)} vs mois précédent</div>`;
   })();
+  // v3.2 — Solde à date interactif : l'utilisateur choisit la date, le solde se recalcule
+  const now=new Date();now.setHours(0,0,0,0);
+  const isCurrentMonth=(sm===now.getMonth()&&sy===now.getFullYear());
+  // Date par défaut : aujourd'hui (si mois courant), sinon dernier jour du mois affiché
+  const defaultDateObj=isCurrentMonth?now:new Date(sy,sm+1,0);
+  const defaultDateStr=defaultDateObj.toISOString().slice(0,10);
+  // _heroDate : date sélectionnée (window global), réinitialisée si on change de mois
+  if(!window._heroDate||new Date(window._heroDate).getMonth()!==sm||new Date(window._heroDate).getFullYear()!==sy){
+    window._heroDate=defaultDateStr;
+  }
+  const heroDateStr=window._heroDate;
+  const heroDateObj=new Date(heroDateStr+'T12:00:00');
+  const isPastOrToday=heroDateObj<=now;
+  const soldeHero=calcSoldeAtDate(heroDateStr);
+  // Label humain lisible (J, date courte)
+  const dayNames=['dim','lun','mar','mer','jeu','ven','sam'];
+  const heroDateLabel=dayNames[heroDateObj.getDay()]+'. '+heroDateObj.toLocaleDateString('fr-FR',{day:'numeric',month:'short'});
+  // Indication : réel (≤ today) vs projeté (> today)
+  const isToday=heroDateStr===new Date().toISOString().slice(0,10);
+  const typeLabel=isToday?'aujourd\'hui':(isPastOrToday?'réel':'projeté');
+  const typeColor=isToday?'#7EA9C8':(isPastOrToday?'#7EC8A9':'#A78BFA');
+  // Min/Max dates : début de mois actuel - 1 an jusqu'à fin de mois actuel + 2 ans
+  const minD=new Date(sy-1,0,1).toISOString().slice(0,10);
+  const maxD=new Date(sy+2,11,31).toISOString().slice(0,10);
+  // Boutons rapides : Aujourd'hui / Fin du mois
+  const todayStr=new Date().toISOString().slice(0,10);
+  const endOfMonthStr=new Date(sy,sm+1,0).toISOString().slice(0,10);
+  const quickBtns=`<div style="display:flex;gap:6px;margin-top:8px;position:relative;z-index:2">
+    <button type="button" onclick="_setHeroDate('${todayStr}')" style="flex:1;background:${heroDateStr===todayStr?'rgba(129,140,248,.25)':'rgba(255,255,255,.05)'};border:1px solid ${heroDateStr===todayStr?'rgba(129,140,248,.5)':'rgba(255,255,255,.08)'};color:${heroDateStr===todayStr?'#A78BFA':'var(--dim)'};font-family:var(--mono);font-size:9px;padding:6px;cursor:pointer;border-radius:6px;font-weight:700">Aujourd'hui</button>
+    <button type="button" onclick="_setHeroDate('${endOfMonthStr}')" style="flex:1;background:${heroDateStr===endOfMonthStr?'rgba(129,140,248,.25)':'rgba(255,255,255,.05)'};border:1px solid ${heroDateStr===endOfMonthStr?'rgba(129,140,248,.5)':'rgba(255,255,255,.08)'};color:${heroDateStr===endOfMonthStr?'#A78BFA':'var(--dim)'};font-family:var(--mono);font-size:9px;padding:6px;cursor:pointer;border-radius:6px;font-weight:700">Fin du mois</button>
+    <input type="date" id="heroDatePicker" value="${heroDateStr}" min="${minD}" max="${maxD}" onchange="_setHeroDate(this.value)" style="flex:1;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:var(--text);font-family:var(--mono);font-size:10px;padding:5px;cursor:pointer;border-radius:6px;color-scheme:dark">
+  </div>`;
+  // Double lecture : solde réel bancaire aujourd'hui (en plus du solde à date)
+  const soldeReel=calcSoldeReel();
+  const showDualReading=isCurrentMonth&&!isToday&&Math.abs(soldeReel-soldeHero)>=0.5;
+  const dualReadingHtml=showDualReading?`<div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:6px 10px;background:rgba(255,255,255,.04);border-radius:8px;border:1px solid rgba(255,255,255,.06);position:relative;z-index:1">
+    <span class="mono xxs" style="color:var(--muted);letter-spacing:1px">RÉEL AUJOURD'HUI</span>
+    <span style="margin-left:auto;font-family:var(--mono);font-size:13px;font-weight:700;color:${soldeReel>=0?'#7EC8A9':'#C87EA9'}">${fmtEur(soldeReel)}</span>
+  </div>`:'';
   const heroHtml=`<div class="hero-dark">
-    <div class="hero-dark-label">Solde total ⚖</div>
-    <div class="hero-dark-val ${bal<0?'neg':''}">${fmtEur(bal)}</div>
+    <div class="hero-dark-label" style="display:flex;align-items:center;gap:8px">Solde au ${heroDateLabel} <span style="display:inline-block;padding:1px 6px;border-radius:4px;background:${typeColor}22;color:${typeColor};font-size:8px;letter-spacing:1px;font-weight:700;text-transform:uppercase">${typeLabel}</span></div>
+    <div class="hero-dark-val ${soldeHero<0?'neg':''}">${fmtEur(soldeHero)}</div>
     ${bal4heroDelta}
+    ${quickBtns}
+    ${dualReadingHtml}
     <div class="hero-dark-flex">
       <div class="hero-dark-flex-item">
         <div class="hero-dark-flex-lb">Revenus</div>
@@ -3542,7 +3653,23 @@ function rCalendar(){
 function _calDayDetail(d,evMapOverride){
   const evMap=evMapOverride||_calBuildEvMap();
   const evs=evMap[d]||[];
-  if(!evs.length) return `<div class="card"><div class="card-t">${d} ${MS[sm]} ${sy}</div><div class="empty">Aucune opération ce jour</div></div>`;
+  // Solde à ce jour (réel si passé, projeté si futur)
+  const dayDateStr=`${sy}-${String(sm+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  const soldeDay=calcSoldeAtDate(dayDateStr);
+  const todayD=new Date();todayD.setHours(0,0,0,0);
+  const targetD=new Date(dayDateStr+'T12:00:00');
+  const isPast=targetD<todayD;
+  const isToday=dayDateStr===new Date().toISOString().slice(0,10);
+  const typeLbl=isToday?'aujourd\'hui':(isPast?'réel':'projeté');
+  const typeCol=isToday?'#7EA9C8':(isPast?'#7EC8A9':'#A78BFA');
+  const soldeBlock=`<div style="background:linear-gradient(135deg,rgba(129,140,248,.08),rgba(167,139,250,.05));border:1px solid rgba(129,140,248,.2);border-radius:12px;padding:12px;margin-bottom:10px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+      <span class="mono xxs" style="color:var(--muted);letter-spacing:1px">SOLDE AU ${d}/${String(sm+1).padStart(2,'0')}</span>
+      <span style="padding:1px 6px;border-radius:4px;background:${typeCol}22;color:${typeCol};font-size:8px;letter-spacing:1px;font-weight:700;text-transform:uppercase">${typeLbl}</span>
+    </div>
+    <div style="font-size:24px;font-weight:800;letter-spacing:-.5px;color:${soldeDay>=0?'var(--green)':'var(--red)'};font-variant-numeric:tabular-nums">${fmtEur(soldeDay)}</div>
+  </div>`;
+  if(!evs.length) return `<div class="card"><div class="card-t">${d} ${MS[sm]} ${sy}</div>${soldeBlock}<div class="empty">Aucune opération ce jour</div></div>`;
   const totalExp=evs.filter(e=>e.tp!=='i').reduce((s,e)=>s+e.amount,0);
   const totalInc=evs.filter(e=>e.tp==='i').reduce((s,e)=>s+e.amount,0);
   const rows=evs.map(e=>{
@@ -3562,6 +3689,7 @@ function _calDayDetail(d,evMapOverride){
         ${totalExp>0?`<span class="mono xxs p">−${fmtEur(totalExp)}</span>`:''}
       </div>
     </div>
+    ${soldeBlock}
     ${rows}
     <button class="submit" style="margin-top:10px;padding:10px;font-size:12px" onclick="_calAddTxOnDay(${d})">＋ Ajouter une transaction le ${d}/${sm+1}</button>
   </div>`;
