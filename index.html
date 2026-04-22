@@ -4371,14 +4371,13 @@ function _addSubAllocation(subId,defaultDest){
   const s=data.s.find(x=>x.id===subId);if(!s)return;
   const [type,id]=defaultDest.split(':');
   if(!s.allocations)s.allocations=[];
-  // Par défaut : mode pourcentage 10%, actif dès maintenant
   s.allocations.push({type,id,mode:'pct',pct:10,amt:0,effectiveFrom:''});
   save();
   _refreshSubEditSheet(subId);
+  render(); // synchronise dashboard/patrimoine
 }
 function _setAllocMode(subId,i,mode){
   const s=data.s.find(x=>x.id===subId);if(!s||!s.allocations||!s.allocations[i])return;
-  // Sauvegarde la valeur courante avant de changer de mode
   const valEl=document.getElementById(`sAllocValue_${subId}_${i}`);
   if(valEl){
     const cur=parseFloat((valEl.value||'0').replace(',','.'))||0;
@@ -4389,6 +4388,7 @@ function _setAllocMode(subId,i,mode){
   s.allocations[i].mode=mode;
   save();
   _refreshSubEditSheet(subId);
+  render();
 }
 function _applySubAllocEdit(subId,i){
   const s=data.s.find(x=>x.id===subId);if(!s||!s.allocations||!s.allocations[i])return;
@@ -4401,14 +4401,18 @@ function _applySubAllocEdit(subId,i){
   const rawVal=parseFloat((valEl.value||'0').replace(',','.'))||0;
   const value=mode==='pct'?Math.max(0,Math.min(rawVal,100)):Math.max(0,rawVal);
   const effectiveFrom=dateEl?dateEl.value:'';
+  const oldAlloc={...s.allocations[i]};
   const newAlloc={type,id,mode,effectiveFrom};
   if(mode==='pct')newAlloc.pct=value;
   else newAlloc.amt=value;
   s.allocations[i]=newAlloc;
+  // Si des transferts RÉELS existent déjà pour cette règle ce mois, on met à jour leurs montants
+  _syncExistingTransfersForRule(s,oldAlloc,newAlloc);
   save();
   const effMsg=effectiveFrom?(new Date(effectiveFrom)>new Date()?' (active dès '+effectiveFrom+')':' (active depuis '+effectiveFrom+')'):'';
   toast('Règle mise à jour'+effMsg);
   _refreshSubEditSheet(subId);
+  render();
 }
 // Helper central : calcule le montant d'une allocation selon son mode
 function _allocAmount(alloc,mainAmt){
@@ -4459,12 +4463,59 @@ function _pendingGoalAllocations(goalId){
   });
   return total;
 }
+// Helper : sync montants des vrais transferts déjà créés ce mois quand une règle change
+function _syncExistingTransfersForRule(s,oldAlloc,newAlloc){
+  if(!data.t||!s)return;
+  // Cherche les transferts ce mois pour cette règle (matching par type+id)
+  const target=oldAlloc||newAlloc;
+  if(!target)return;
+  data.t.forEach(t=>{
+    if(t._subId!==s.id||!t.transfer)return;
+    const dt=new Date(t.d);
+    if(dt.getMonth()!==sm||dt.getFullYear()!==sy)return;
+    if(t.transfer.type!==target.type||t.transfer.id!==target.id)return;
+    if(!newAlloc){
+      // Règle supprimée → reverser l'impact et retirer la tx
+      _reverseTxTransfer(t);
+      data.t=data.t.filter(x=>x.id!==t.id);
+      return;
+    }
+    // Recalculer le montant avec la nouvelle règle
+    const newAmt=_allocAmount(newAlloc,s.a);
+    if(Math.abs(newAmt-t.a)<0.01)return; // rien à faire
+    _reverseTxTransfer(t);
+    t.a=newAmt;
+    const destName=_transferLabel(t.transfer).replace(/^[💎🎯]\s*/,'');
+    const modeLabel=(newAlloc.mode||'pct')==='amt'?`fixe ${fmtEur(newAlloc.amt)}`:`${newAlloc.pct}%`;
+    t.lb=`Transfert → ${destName} (${modeLabel})`;
+    _applyTxTransfer(t);
+  });
+}
 function _delSubAllocation(subId,i){
-  const s=data.s.find(x=>x.id===subId);if(!s||!s.allocations)return;
+  const s=data.s.find(x=>x.id===subId);if(!s||!s.allocations||!s.allocations[i])return;
+  const alloc=s.allocations[i];
+  // Cherche les transferts réels déjà créés ce mois pour cette règle
+  const existingXfers=(data.t||[]).filter(t=>t._subId===s.id&&t.transfer&&t.transfer.type===alloc.type&&t.transfer.id===alloc.id&&(()=>{const dt=new Date(t.d);return dt.getMonth()===sm&&dt.getFullYear()===sy;})());
+  if(existingXfers.length){
+    const msg=`Supprimer aussi les ${existingXfers.length} transfert${existingXfers.length>1?'s':''} déjà créé${existingXfers.length>1?'s':''} ce mois pour cette règle ?\n\n(OK = supprimer règle + transferts · Annuler = supprimer règle seulement, garder l'historique)`;
+    const alsoRemoveTx=confirm(msg);
+    if(alsoRemoveTx){
+      existingXfers.forEach(t=>{
+        _reverseTxTransfer(t);
+        data.t=data.t.filter(x=>x.id!==t.id);
+      });
+      toast(`Règle + ${existingXfers.length} transfert${existingXfers.length>1?'s':''} supprimé${existingXfers.length>1?'s':''}`);
+    }else{
+      toast('Règle supprimée (transferts historiques conservés)');
+    }
+  }else{
+    toast('Règle supprimée');
+  }
   s.allocations.splice(i,1);
   if(!s.allocations.length)delete s.allocations;
   save();
   _refreshSubEditSheet(subId);
+  render();
 }
 function _onSubAmtChange(subId){
   const s=data.s.find(x=>x.id===subId);if(!s)return;
