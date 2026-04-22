@@ -562,6 +562,9 @@ button,a,[onclick]{touch-action:manipulation}
 .x-chips::-webkit-scrollbar{display:none}
 .x-chip{padding:6px 12px;background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--dim);border-radius:99px;font-family:var(--mono);font-size:10px;white-space:nowrap;cursor:pointer;letter-spacing:.3px;transition:all .15s}
 .x-chip.on{background:rgba(129,140,248,.15);border-color:rgba(129,140,248,.4);color:var(--gold);font-weight:700}
+.x-chip-select{appearance:none;-webkit-appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--dim) 50%),linear-gradient(135deg,var(--dim) 50%,transparent 50%);background-position:calc(100% - 10px) 50%,calc(100% - 6px) 50%;background-size:4px 4px,4px 4px;background-repeat:no-repeat;outline:none;cursor:pointer;max-width:180px;text-overflow:ellipsis}
+.x-chip-select.on{background-image:linear-gradient(45deg,transparent 50%,var(--gold) 50%),linear-gradient(135deg,var(--gold) 50%,transparent 50%);background-position:calc(100% - 10px) 50%,calc(100% - 6px) 50%;background-size:4px 4px,4px 4px;background-repeat:no-repeat}
+.x-chip-select option{background:var(--bg2);color:var(--text)}
 [data-theme="light"] .x-search{background:rgba(255,255,255,.55);border-color:rgba(255,255,255,.75);color:#1A1D23}
 [data-theme="light"] .x-chip{background:rgba(255,255,255,.4);border-color:rgba(255,255,255,.7);color:#555E6E}
 [data-theme="light"] .x-chip.on{background:rgba(0,122,255,.12);border-color:#007AFF;color:#007AFF}
@@ -962,8 +965,8 @@ function getKpiPrefs(){try{return{...DEFAULT_KPIS,...JSON.parse(localStorage.get
 function saveKpiPrefs(p){localStorage.setItem('kpiPrefs',JSON.stringify(p));}
 
 function loadData(){
-  try{const d=JSON.parse(localStorage.getItem('bpro2'));if(d){if(!d.s)d.s=[];if(!d.goals)d.goals=[];if(!d.assets)d.assets=[];if(!d.debts)d.debts=[];if(!d.stocks)d.stocks=[];if(!d.creances)d.creances=[];return d;}}catch(e){}
-  return {t:[],b:{},s:[],goals:[],assets:[],debts:[],stocks:[],creances:[]};
+  try{const d=JSON.parse(localStorage.getItem('bpro2'));if(d){if(!d.s)d.s=[];if(!d.goals)d.goals=[];if(!d.assets)d.assets=[];if(!d.debts)d.debts=[];if(!d.stocks)d.stocks=[];if(!d.creances)d.creances=[];if(!d.trash)d.trash=[];return d;}}catch(e){}
+  return {t:[],b:{},s:[],goals:[],assets:[],debts:[],stocks:[],creances:[],trash:[]};
 }
 let data=loadData();
 function save(){
@@ -2325,12 +2328,42 @@ function delTx(id){
   const tx=data.t.find(t=>t.id===id);if(!tx)return;
   const backup={...tx};
   _reverseTxTransfer(tx);
-  data.t=data.t.filter(t=>t.id!==id);save();render();
+  data.t=data.t.filter(t=>t.id!==id);
+  // Corbeille : garder la tx avec timestamp pour restauration ultérieure
+  if(!data.trash)data.trash=[];
+  data.trash.unshift({...backup,_deletedAt:Date.now(),_trashId:gid()});
+  // Purge auto : entrées > 30 jours supprimées définitivement
+  const cutoff=Date.now()-30*86400000;
+  data.trash=data.trash.filter(t=>(t._deletedAt||0)>=cutoff);
+  save();render();
   _showUndo(`"${(backup.lb||'Transaction').substring(0,20)}" supprimée`,()=>{
+    // Undo immédiat : restaure + retire de la corbeille
+    data.trash=data.trash.filter(t=>t._trashId!==data.trash[0]?._trashId);
     data.t.push(backup);
     if(backup.transfer)_applyTxTransfer(backup);
     save();
   });
+}
+function restoreTrashTx(trashId){
+  if(!data.trash)return;
+  const entry=data.trash.find(t=>t._trashId===trashId);
+  if(!entry)return;
+  const restored={...entry};
+  delete restored._deletedAt;delete restored._trashId;delete restored.transferApplied;
+  data.t.push(restored);
+  if(restored.transfer)_applyTxTransfer(restored);
+  data.trash=data.trash.filter(t=>t._trashId!==trashId);
+  save();toast(`"${(restored.lb||'Tx').slice(0,20)}" restaurée`);render();
+}
+function delTrashTxPerm(trashId){
+  if(!confirm('Supprimer définitivement cette transaction ? Cette action est irréversible.'))return;
+  data.trash=(data.trash||[]).filter(t=>t._trashId!==trashId);
+  save();toast('Supprimée définitivement');render();
+}
+function emptyTrash(){
+  if(!data.trash||!data.trash.length)return;
+  if(!confirm(`Vider la corbeille (${data.trash.length} élément${data.trash.length>1?'s':''}) ? Irréversible.`))return;
+  data.trash=[];save();toast('Corbeille vidée');render();
 }
 // ══════════════════════════════════════════════════════════
 // Transferts tx → actif/objectif
@@ -3445,7 +3478,8 @@ function rHistory(){
   const allCats=_allCats();
   const catOpts='<option value="">Toutes</option>'+allCats.map(c=>`<option value="${c.name}"${_histFilter.cat===c.name?' selected':''}>${c.icon} ${c.name}</option>`).join('');
   const bulkToggle=`<button class="bulk-btn" onclick="toggleBulkMode()" style="margin-left:auto;${_bulkMode?'border-color:var(--gold);color:var(--gold)':''}">${_bulkMode?'✓ Sélection':'☐ Multi'}</button>`;
-  // v3.1 — Search + chips filtres scrollables
+  // v3.1 — Search + chips types + select catégorie
+  const catOptions='<option value="">Toutes catégories</option>'+allCats.map(c=>`<option value="${esc(c.name)}"${_histFilter.cat===c.name?' selected':''}>${c.icon} ${esc(c.name)}</option>`).join('');
   const filterBar=`<div class="search-wrap">
     <span class="search-ico">🔍</span>
     <input id="xHistSearch" class="x-search" type="text" placeholder="Libellé, catégorie ou montant…" value="${esc(_histFilter.q)}" oninput="_onHistSearchInput(this)">
@@ -3454,7 +3488,7 @@ function rHistory(){
     <button class="x-chip${!_histFilter.tp&&!_histFilter.cat?' on':''}" onclick="_histFilter.tp='';_histFilter.cat='';reRenderHistory()">Toutes</button>
     <button class="x-chip${_histFilter.tp==='e'?' on':''}" onclick="_histFilter.tp='e';_histFilter.cat='';reRenderHistory()">↘ Dépenses</button>
     <button class="x-chip${_histFilter.tp==='i'?' on':''}" onclick="_histFilter.tp='i';_histFilter.cat='';reRenderHistory()">↗ Revenus</button>
-    ${allCats.slice(0,8).map(c=>`<button class="x-chip${_histFilter.cat===c.name?' on':''}" onclick="_histFilter.cat='${esc(c.name)}';_histFilter.tp='';reRenderHistory()">${c.icon} ${esc(c.name)}</button>`).join('')}
+    <select class="x-chip x-chip-select${_histFilter.cat?' on':''}" onchange="_histFilter.cat=this.value;_histFilter.tp='';reRenderHistory()" style="padding-right:22px">${catOptions}</select>
     <button class="x-chip" onclick="exportCSV()">📥 CSV</button>
     <button class="x-chip${_bulkMode?' on':''}" onclick="toggleBulkMode()">${_bulkMode?'✓ Sélection':'☐ Multi'}</button>
   </div>`;
@@ -3542,6 +3576,9 @@ function rHistory(){
     }
   }
   const loadMore=hasMore?`<button onclick="_histPage++;reRenderHistory()" style="width:100%;padding:12px;background:none;border:1px solid var(--border);color:var(--dim);font-family:var(--mono);font-size:10px;cursor:pointer;border-radius:var(--Rx);margin-top:8px;transition:all .2s">Charger plus (${sorted.length-visible.length} restantes)</button>`:'';
+  // v3.1 — Corbeille (accordéon replié par défaut)
+  const trash=(data.trash||[]).slice().sort((a,b)=>(b._deletedAt||0)-(a._deletedAt||0));
+  const trashSection=trash.length?_renderTrashSection(trash):'';
   return `<div style="margin-bottom:6px">
     <div style="font-size:11px;color:var(--dim);font-family:var(--mono);letter-spacing:1px;text-transform:uppercase;margin-bottom:2px">${MS[sm]} ${sy} — ${txs.length} transaction${txs.length!==1?'s':''}${subtitle}</div>
   </div>
@@ -3550,7 +3587,39 @@ function rHistory(){
     ${txHtml}
     ${loadMore}
     ${totalBar}
-  </div>${_bulkMode?renderBulkBar():''}`;
+  </div>${trashSection}${_bulkMode?renderBulkBar():''}`;
+}
+// Helper : rend la section Corbeille (accordéon replié par défaut)
+function _renderTrashSection(trash){
+  const open=window._trashOpen===true;
+  const days=n=>{
+    const h=(Date.now()-n)/3600000;
+    if(h<24)return 'il y a '+Math.round(h)+'h';
+    return 'il y a '+Math.round(h/24)+'j';
+  };
+  const rows=trash.map(t=>{
+    const cat=gc(t.c);const isInc=t.tp==='i';
+    const icoClass=_catIconClass(t.c);
+    return `<div class="row" style="opacity:.8;margin-bottom:6px">
+      <div class="row-ico ${icoClass}">${cat.icon||'🗑'}</div>
+      <div class="row-inf">
+        <div class="row-lb">${esc(t.lb||'Transaction')}</div>
+        <div class="row-mt">${esc(t.c)} · ${t.d} · <span style="color:var(--muted)">supprimée ${days(t._deletedAt||Date.now())}</span></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span class="row-am ${isInc?'g':'p'}" style="opacity:.6">${isInc?'+':'−'}${fmtEur(t.a)}</span>
+        <button type="button" onclick="restoreTrashTx('${t._trashId}')" aria-label="Restaurer" style="background:rgba(126,200,169,.15);border:1px solid rgba(126,200,169,.35);color:var(--green);font-family:var(--mono);font-size:10px;padding:6px 8px;cursor:pointer;border-radius:6px">↺</button>
+        <button type="button" onclick="delTrashTxPerm('${t._trashId}')" aria-label="Supprimer définitivement" style="background:rgba(200,85,85,.1);border:1px solid rgba(200,85,85,.3);color:var(--red);font-family:var(--mono);font-size:10px;padding:6px 8px;cursor:pointer;border-radius:6px">×</button>
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="card" style="border-color:rgba(200,85,85,.15);background:rgba(200,85,85,.02)">
+    <div class="card-t" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="window._trashOpen=!window._trashOpen;reRenderHistory()">
+      <span style="display:flex;align-items:center;gap:6px">🗑 Corbeille · ${trash.length} élément${trash.length>1?'s':''}</span>
+      <span style="font-family:var(--mono);font-size:10px;color:var(--muted)">${open?'▼':'▶'} (30j)</span>
+    </div>
+    ${open?`<div style="margin-top:8px">${rows}<button type="button" onclick="emptyTrash()" style="width:100%;margin-top:8px;background:rgba(200,85,85,.08);border:1px dashed rgba(200,85,85,.3);color:var(--red);font-family:var(--mono);font-size:10px;padding:8px;cursor:pointer;border-radius:6px">Vider la corbeille</button></div>`:'<div class="mono xxs" style="color:var(--muted);margin-top:6px;line-height:1.5">Clique pour voir les transactions supprimées (restaurables pendant 30 jours)</div>'}
+  </div>`;
 }
 function reRenderHistory(){
   const m=document.getElementById('main');
@@ -4005,28 +4074,7 @@ function openEditSub(id){
   const hasCustom=!!localStorage.getItem('logo_'+s.id);
   const todayISO=new Date().toISOString().slice(0,10);
   const hist=(s.priceHistory||[]).slice().sort((a,b)=>(b.effectiveFrom||'').localeCompare(a.effectiveFrom||''));
-  const histHtml=hist.length?`<div style="background:rgba(255,255,255,.03);border-radius:var(--Rs);padding:10px;margin-top:4px">
-      <div class="card-t" style="margin-bottom:8px;font-size:10px;display:flex;justify-content:space-between;align-items:center">Historique des montants
-        <span class="mono xxs" style="color:var(--muted);font-weight:400">${hist.length} entrée${hist.length>1?'s':''}</span>
-      </div>
-      ${hist.map((h,i)=>{
-        const origKey=h.effectiveFrom||'';
-        const isLatest=i===0;
-        return `<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04)">
-          <div style="display:flex;gap:6px;align-items:center">
-            <input id="histAmt_${i}" class="fi" type="text" inputmode="decimal" value="${h.a.toString().replace('.',',')}" style="flex:1;padding:6px 8px;font-size:12px">
-            <span class="mono xxs" style="color:var(--muted);white-space:nowrap">depuis</span>
-            <input id="histDate_${i}" class="fi" type="date" value="${origKey}" style="flex:1;padding:6px 8px;font-size:11px">
-          </div>
-          <div style="display:flex;gap:6px;margin-top:6px">
-            <button onclick="_applyHistEdit('${s.id}','${esc(origKey)}')" style="flex:1;background:rgba(126,200,169,.15);border:1px solid rgba(126,200,169,.35);color:var(--green);font-family:var(--mono);font-size:10px;padding:6px;cursor:pointer;border-radius:6px">✓ Appliquer</button>
-            <button onclick="_delHistEntry('${s.id}','${esc(origKey)}')" style="background:rgba(200,126,160,.1);border:1px solid rgba(200,126,160,.3);color:var(--pink);font-family:var(--mono);font-size:10px;padding:6px 10px;cursor:pointer;border-radius:6px" title="Supprimer cette entrée">×</button>
-          </div>
-          ${isLatest?'<div class="mono xxs" style="color:var(--muted);margin-top:4px">↳ Montant actuel</div>':''}
-        </div>`;
-      }).join('')}
-      <div class="mono xxs" style="color:var(--muted);margin-top:6px;line-height:1.5">Modifie un montant ou une date passée pour corriger un historique erroné. Les transactions déjà enregistrées ne sont pas affectées.</div>
-    </div>`:'';
+  const histHtml=hist.length?_renderSubHistoryInner(s,hist):'';
   const body=`<div class="fg">
     <div style="margin-bottom:12px">
       <div class="fl" style="margin-bottom:6px">Logo personnalise</div>
@@ -4056,10 +4104,35 @@ function openEditSub(id){
     <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
       <input id="esActive" type="checkbox"${s.active!==false?' checked':''}> Actif
     </label>
-    ${s._tp==='i'?_renderSubAllocations(s):''}
-    ${histHtml}
+    <div id="sAllocWrap_${s.id}">${s._tp==='i'?_renderSubAllocations(s):''}</div>
+    <div id="sHistWrap_${s.id}">${histHtml}</div>
   </div>`;
   openSheet('Modifier l\'abonnement', body, ()=>saveEditSub(id));
+}
+// Helper : rendu inline de l'historique des prix (réutilisable pour refresh in-place)
+function _renderSubHistoryInner(s,hist){
+  return `<div style="background:rgba(255,255,255,.03);border-radius:var(--Rs);padding:10px;margin-top:4px">
+    <div class="card-t" style="margin-bottom:8px;font-size:10px;display:flex;justify-content:space-between;align-items:center">Historique des montants
+      <span class="mono xxs" style="color:var(--muted);font-weight:400">${hist.length} entrée${hist.length>1?'s':''}</span>
+    </div>
+    ${hist.map((h,i)=>{
+      const origKey=h.effectiveFrom||'';
+      const isLatest=i===0;
+      return `<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04)">
+        <div style="display:flex;gap:6px;align-items:center">
+          <input id="histAmt_${i}" class="fi" type="text" inputmode="decimal" value="${h.a.toString().replace('.',',')}" style="flex:1;padding:6px 8px;font-size:12px">
+          <span class="mono xxs" style="color:var(--muted);white-space:nowrap">depuis</span>
+          <input id="histDate_${i}" class="fi" type="date" value="${origKey}" style="flex:1;padding:6px 8px;font-size:11px">
+        </div>
+        <div style="display:flex;gap:6px;margin-top:6px">
+          <button type="button" onclick="_applyHistEdit('${s.id}','${esc(origKey)}')" style="flex:1;background:rgba(126,200,169,.15);border:1px solid rgba(126,200,169,.35);color:var(--green);font-family:var(--mono);font-size:10px;padding:6px;cursor:pointer;border-radius:6px">✓ Appliquer</button>
+          <button type="button" onclick="_delHistEntry('${s.id}','${esc(origKey)}')" style="background:rgba(200,126,160,.1);border:1px solid rgba(200,126,160,.3);color:var(--pink);font-family:var(--mono);font-size:10px;padding:6px 10px;cursor:pointer;border-radius:6px" title="Supprimer cette entrée">×</button>
+        </div>
+        ${isLatest?'<div class="mono xxs" style="color:var(--muted);margin-top:4px">↳ Montant actuel</div>':''}
+      </div>`;
+    }).join('')}
+    <div class="mono xxs" style="color:var(--muted);margin-top:6px;line-height:1.5">Modifie un montant ou une date passée pour corriger un historique erroné. Les transactions déjà enregistrées ne sont pas affectées.</div>
+  </div>`;
 }
 // ── Allocations automatiques sur revenus récurrents ──
 function _renderSubAllocations(s){
@@ -4068,14 +4141,18 @@ function _renderSubAllocations(s){
   if(!assets.length&&!goals.length){
     return `<div style="background:rgba(129,140,248,.05);border:1px solid rgba(129,140,248,.15);border-radius:var(--Rs);padding:10px;margin-top:4px">
       <div class="card-t" style="margin-bottom:6px;font-size:10px">💎 Répartition auto à chaque renouvellement</div>
-      <div class="mono xxs" style="color:var(--muted);line-height:1.5">Ajoute un actif ou un objectif pour activer les allocations automatiques sur ce revenu.</div>
+      <div class="mono xxs" style="color:var(--muted);line-height:1.5;margin-bottom:8px">Crée d'abord un actif (Livret, PEA…) ou un objectif.</div>
+      <div style="display:flex;gap:6px">
+        <button type="button" onclick="closeSheet();navTo('patrimoine')" style="flex:1;background:rgba(126,200,169,.1);border:1px solid rgba(126,200,169,.3);color:var(--green);font-family:var(--mono);font-size:10px;padding:8px;cursor:pointer;border-radius:6px">💎 Créer une épargne →</button>
+        <button type="button" onclick="closeSheet();navTo('goals')" style="flex:1;background:rgba(129,140,248,.1);border:1px solid rgba(129,140,248,.3);color:var(--gold);font-family:var(--mono);font-size:10px;padding:8px;cursor:pointer;border-radius:6px">🎯 Créer un objectif →</button>
+      </div>
     </div>`;
   }
   const allocs=s.allocations||[];
   const destOptions=(selKey)=>{
     let opts='';
-    if(assets.length)opts+=`<optgroup label="Actifs">${assets.map(a=>`<option value="asset:${a.id}"${selKey===`asset:${a.id}`?' selected':''}>💎 ${esc(a.name)}</option>`).join('')}</optgroup>`;
-    if(goals.length)opts+=`<optgroup label="Objectifs">${goals.map(g=>`<option value="goal:${g.id}"${selKey===`goal:${g.id}`?' selected':''}>🎯 ${esc(g.name)}</option>`).join('')}</optgroup>`;
+    if(assets.length)opts+=`<optgroup label="💎 Épargne / Actifs">${assets.map(a=>`<option value="asset:${a.id}"${selKey===`asset:${a.id}`?' selected':''}>💎 ${esc(a.name)}</option>`).join('')}</optgroup>`;
+    if(goals.length)opts+=`<optgroup label="🎯 Objectifs">${goals.map(g=>`<option value="goal:${g.id}"${selKey===`goal:${g.id}`?' selected':''}>🎯 ${esc(g.name)}</option>`).join('')}</optgroup>`;
     return opts;
   };
   const rows=allocs.map((a,i)=>{
@@ -4102,9 +4179,22 @@ function _renderSubAllocations(s){
       ${allocs.length?`<span class="mono xxs" style="color:${totalPct>100?'var(--red)':'var(--muted)'};font-weight:400">${totalPct}%</span>`:''}
     </div>
     ${allocs.length?rows:'<div class="mono xxs" style="color:var(--muted);margin-bottom:8px">Aucune règle active.</div>'}
-    <button onclick="_addSubAllocation('${s.id}','${firstDest}')" style="width:100%;background:none;border:1px dashed var(--border2);color:var(--dim);font-family:var(--mono);font-size:10px;padding:7px;cursor:pointer;border-radius:6px;margin-top:${allocs.length?'8px':'0'}">+ Ajouter une règle</button>
+    <button type="button" onclick="_addSubAllocation('${s.id}','${firstDest}')" style="width:100%;background:none;border:1px dashed var(--border2);color:var(--dim);font-family:var(--mono);font-size:10px;padding:7px;cursor:pointer;border-radius:6px;margin-top:${allocs.length?'8px':'0'}">+ Ajouter une règle</button>
+    ${!assets.length?`<button type="button" onclick="closeSheet();navTo('patrimoine')" style="width:100%;background:rgba(126,200,169,.08);border:1px dashed rgba(126,200,169,.3);color:var(--green);font-family:var(--mono);font-size:10px;padding:7px;cursor:pointer;border-radius:6px;margin-top:6px">💎 Pas encore d'épargne ? Créer un actif →</button>`:''}
     ${allocs.length?`<div class="mono xxs" style="color:var(--muted);margin-top:8px;line-height:1.5">À chaque renouvellement : ${fmtEur(s.a)} reçu → <span style="color:var(--blue)">${fmtEur(repartMontant)}</span> transférés · <span style="color:var(--green)">${fmtEur(s.a-repartMontant)}</span> sur compte courant</div>`:''}
   </div>`;
+}
+// Re-render in place de la section allocations / priceHistory sans fermer la sheet
+function _refreshSubEditSheet(subId){
+  const s=data.s.find(x=>x.id===subId);if(!s)return;
+  // Reconstruire le HTML des sections dynamiques
+  const allocWrap=document.getElementById('sAllocWrap_'+subId);
+  if(allocWrap&&s._tp==='i')allocWrap.outerHTML=`<div id="sAllocWrap_${subId}">${_renderSubAllocations(s)}</div>`;
+  const histWrap=document.getElementById('sHistWrap_'+subId);
+  if(histWrap){
+    const hist=(s.priceHistory||[]).slice().sort((a,b)=>(b.effectiveFrom||'').localeCompare(a.effectiveFrom||''));
+    histWrap.outerHTML=`<div id="sHistWrap_${subId}">${hist.length?_renderSubHistoryInner(s,hist):''}</div>`;
+  }
 }
 function _addSubAllocation(subId,defaultDest){
   const s=data.s.find(x=>x.id===subId);if(!s)return;
@@ -4112,8 +4202,7 @@ function _addSubAllocation(subId,defaultDest){
   if(!s.allocations)s.allocations=[];
   s.allocations.push({type,id,pct:10});
   save();
-  closeSheet();
-  setTimeout(()=>openEditSub(subId),120);
+  _refreshSubEditSheet(subId);
 }
 function _applySubAllocEdit(subId,i){
   const s=data.s.find(x=>x.id===subId);if(!s||!s.allocations||!s.allocations[i])return;
@@ -4125,16 +4214,14 @@ function _applySubAllocEdit(subId,i){
   s.allocations[i]={type,id,pct};
   save();
   toast('Règle mise à jour');
-  closeSheet();
-  setTimeout(()=>openEditSub(subId),120);
+  _refreshSubEditSheet(subId);
 }
 function _delSubAllocation(subId,i){
   const s=data.s.find(x=>x.id===subId);if(!s||!s.allocations)return;
   s.allocations.splice(i,1);
   if(!s.allocations.length)delete s.allocations;
   save();
-  closeSheet();
-  setTimeout(()=>openEditSub(subId),120);
+  _refreshSubEditSheet(subId);
 }
 function _onSubAmtChange(subId){
   const s=data.s.find(x=>x.id===subId);if(!s)return;
@@ -4172,8 +4259,9 @@ function _applyHistEdit(subId,origDate){
   s.a=latest.a;
   save();
   toast('Historique mis à jour');
-  closeSheet();
-  setTimeout(()=>openEditSub(subId),150);
+  _refreshSubEditSheet(subId);
+  // Met à jour le champ montant principal si c'est la dernière entrée
+  const esAmt=document.getElementById('esAmt');if(esAmt)esAmt.value=s.a.toString().replace('.',',');
 }
 function _delHistEntry(subId,origDate){
   const s=data.s.find(x=>x.id===subId);if(!s||!s.priceHistory)return;
@@ -4187,8 +4275,8 @@ function _delHistEntry(subId,origDate){
   }
   save();
   toast('Entrée supprimée');
-  closeSheet();
-  setTimeout(()=>openEditSub(subId),150);
+  _refreshSubEditSheet(subId);
+  const esAmt=document.getElementById('esAmt');if(esAmt)esAmt.value=s.a.toString().replace('.',',');
 }
 function saveEditSub(id){
   const s=data.s.find(x=>x.id===id); if(!s)return;
@@ -6499,19 +6587,37 @@ document.getElementById('imageOcrInput').addEventListener('change',function(){
   this.value='';
 });
 
-// Pull-to-dismiss on sheet box (swipe down)
+// Pull-to-dismiss on sheet box — uniquement depuis le header/grabber (haut de la sheet)
+// pour éviter les faux positifs au scroll du contenu
 (function(){
-  let startY=0;
+  let startY=0,startX=0,active=false,armed=false;
   const box=document.getElementById('sheetBox');
-  box.addEventListener('touchstart',e=>{startY=e.touches[0].clientY;},{passive:true});
+  if(!box)return;
+  const HANDLE_ZONE=60; // px du haut de la sheet où le swipe-to-dismiss est actif
+  const THRESHOLD=140;  // distance minimale de swipe (plus tolérant qu'avant)
+  box.addEventListener('touchstart',e=>{
+    const rect=box.getBoundingClientRect();
+    const touchY=e.touches[0].clientY;
+    startY=touchY;startX=e.touches[0].clientX;
+    armed=(touchY-rect.top)<=HANDLE_ZONE; // seulement si on touche dans le handle
+    active=false;
+  },{passive:true});
   box.addEventListener('touchmove',e=>{
+    if(!armed)return;
     const dy=e.touches[0].clientY-startY;
-    if(dy>0)box.style.transform=`translateY(${dy}px)`;
+    const dx=Math.abs(e.touches[0].clientX-startX);
+    // Ignore si geste plus horizontal que vertical (évite de fermer en scroll latéral)
+    if(dx>Math.abs(dy))return;
+    if(dy<=0)return;
+    if(dy>10)active=true;
+    if(active)box.style.transform=`translateY(${dy}px)`;
   },{passive:true});
   box.addEventListener('touchend',e=>{
-    const dy=e.changedTouches[0].clientY-startY;
     box.style.transform='';
-    if(dy>80)closeSheet();
+    if(!armed||!active){armed=false;active=false;return;}
+    const dy=e.changedTouches[0].clientY-startY;
+    if(dy>THRESHOLD)closeSheet();
+    armed=false;active=false;
   });
 })();
 </script>
