@@ -1058,6 +1058,88 @@ function save(){
   if(changed)save();
 })();
 
+// Renouvellement automatique des abonnements arrivés à échéance
+// Exécuté au chargement. S'applique à tous les subs actifs SAUF ceux marqués `autoRenew:false`.
+// Pour chaque sub dont `next <= today`, crée une vraie tx dans data.t + applique les allocations
+// éventuelles, puis avance `next` au prochain cycle. Boucle tant que `next <= today` (rattrape
+// plusieurs échéances manquées d'un coup si l'utilisateur revient après une absence).
+(function autoRenewSubs(){
+  if(!data.s||!data.s.length)return;
+  const today=_ymd(new Date());
+  let createdCount=0;
+  let renewedSubs=[];
+  (data.s||[]).filter(s=>s.active!==false&&s.autoRenew!==false).forEach(s=>{
+    let guard=0;
+    while(s.next&&s.next<=today&&guard<120){
+      guard++;
+      const date=s.next;
+      const amt=getSubAmountAt(s,date);
+      // Dedup : si une tx identique existe déjà ce mois-là (via _subId ou par match fuzzy),
+      // on n'en crée pas de doublon. Juste on avance next.
+      const ndMonth=date.slice(0,7);
+      const alreadyIn=(data.t||[]).some(t=>!t.transfer&&t.d.slice(0,7)===ndMonth&&(t.tp||'e')===(s._tp||'e')&&(
+        t._subId===s.id ||
+        ((t.lb||'').toLowerCase().trim()===(s.name||'').toLowerCase().trim() && Math.abs((t.a||0)-amt)<0.5)
+      ));
+      if(!alreadyIn){
+        const mainTx={id:gid(),lb:s.name,a:amt,c:s._cat||'Loisirs',d:date,tp:s._tp||'e',_subId:s.id,_autoRenewed:true};
+        data.t.unshift(mainTx);
+        createdCount++;
+        // Allocations auto pour les revenus
+        if((s._tp||'e')==='i'&&Array.isArray(s.allocations)&&s.allocations.length){
+          s.allocations.forEach(alloc=>{
+            if(alloc.effectiveFrom&&alloc.effectiveFrom>date)return;
+            const destExists=alloc.type==='asset'
+              ?(data.assets||[]).some(x=>x.id===alloc.id)
+              :(data.goals||[]).some(x=>x.id===alloc.id);
+            if(!destExists)return;
+            const xamt=(function(a,m){if(!a)return 0;const mode=a.mode||'pct';if(mode==='amt')return Math.max(0,a.amt||0);return Math.max(0,m*(a.pct||0)/100);})(alloc,amt);
+            if(xamt<0.01)return;
+            const destName=alloc.type==='asset'
+              ?((data.assets||[]).find(x=>x.id===alloc.id)?.name||'Actif')
+              :((data.goals||[]).find(x=>x.id===alloc.id)?.name||'Objectif');
+            const modeLabel=(alloc.mode||'pct')==='amt'?`fixe ${alloc.amt}€`:`${alloc.pct}%`;
+            const xferTx={id:gid(),lb:`Transfert → ${destName} (${modeLabel})`,a:xamt,c:'Épargne',d:date,tp:'e',transfer:{type:alloc.type,id:alloc.id},_subId:s.id,_fromSubInc:mainTx.id,_autoRenewed:true};
+            data.t.unshift(xferTx);
+            // Applique l'impact sur asset/goal (inline — _applyTxTransfer pas encore défini à ce stade)
+            const amtAbs=Math.abs(xferTx.a);
+            if(alloc.type==='asset'){
+              const a=data.assets.find(x=>x.id===alloc.id);
+              if(a){
+                a.mouvements=a.mouvements||[];
+                const mvtId='mvt_'+Date.now()+Math.random();
+                a.mouvements.push({id:mvtId,d:date,delta:amtAbs,reason:'Transfert → '+s.name,valBefore:a.val,valAfter:a.val+amtAbs,_fromTxId:xferTx.id});
+                a.val=(a.val||0)+amtAbs;
+                xferTx.transferApplied={type:'asset',id:alloc.id,amount:amtAbs,direction:'out',mvtId};
+              }
+            }else{
+              const g=data.goals.find(x=>x.id===alloc.id);
+              if(g){g.saved=Math.min(g.target,(g.saved||0)+amtAbs);xferTx.transferApplied={type:'goal',id:alloc.id,amount:amtAbs,direction:'out'};}
+            }
+          });
+        }
+        renewedSubs.push(s.name);
+      }
+      // Avance next au prochain cycle
+      const d=new Date(date);const origDay=d.getDate();
+      const f=s.freq||'monthly';
+      if(f==='weekly')d.setDate(d.getDate()+7);
+      else if(f==='monthly'){d.setMonth(d.getMonth()+1);if(d.getDate()!==origDay)d.setDate(0);}
+      else if(f==='quarterly'){d.setMonth(d.getMonth()+3);if(d.getDate()!==origDay)d.setDate(0);}
+      else if(f==='biannual'){d.setMonth(d.getMonth()+6);if(d.getDate()!==origDay)d.setDate(0);}
+      else if(f==='yearly'){d.setFullYear(d.getFullYear()+1);if(d.getDate()!==origDay)d.setDate(0);}
+      const y=d.getFullYear(),mm=String(d.getMonth()+1).padStart(2,'0'),dd=String(d.getDate()).padStart(2,'0');
+      s.next=`${y}-${mm}-${dd}`;
+    }
+  });
+  if(createdCount>0){
+    try{localStorage.setItem('bpro2',JSON.stringify(data));}catch(e){}
+    // Toast différé (pour s'afficher après l'init)
+    window._autoRenewedCount=createdCount;
+    window._autoRenewedNames=[...new Set(renewedSubs)];
+  }
+})();
+
 // ═══════════════════════════════════════════════════════════
 // HELPERS
 // ═══════════════════════════════════════════════════════════
@@ -2369,7 +2451,8 @@ function rDash(){
     <span class="mono xxs" style="color:var(--muted);letter-spacing:1px">RÉEL AUJOURD'HUI</span>
     <span style="margin-left:auto;font-family:var(--mono);font-size:13px;font-weight:700;color:${soldeReel>=0?'#7EC8A9':'#C87EA9'}">${fmtEur(soldeReel)}</span>
   </div>`:'';
-  const heroHtml=`<div class="hero-dark">
+  // Hero V4 (nouveau design : solde à date interactif + dual reading + flex)
+  const heroHtmlV4=`<div class="hero-dark">
     <div class="hero-dark-label" style="display:flex;align-items:center;gap:8px">Solde au ${heroDateLabel} <span style="display:inline-block;padding:1px 6px;border-radius:4px;background:${typeColor}22;color:${typeColor};font-size:8px;letter-spacing:1px;font-weight:700;text-transform:uppercase">${typeLabel}</span></div>
     <div class="hero-dark-val ${soldeHero<0?'neg':''}">${fmtEur(soldeHero)}</div>
     ${bal4heroDelta}
@@ -2394,6 +2477,21 @@ function rDash(){
       </div>
     </div>
   </div>`;
+  // Hero V3 (ancien design : solde total centré + revenus/dépenses en petit en dessous)
+  // Pas de calcul à date interactif — juste le solde cumulé du mois affiché.
+  // Dépenses V3 = dépenses ordinaires + épargne (argent qui sort du solde courant, toute confondue)
+  const expV3=exp+savingIn;
+  const heroHtmlV3=`<div class="dash-hero">
+    <div class="dash-hero-label">Solde du mois ⚖</div>
+    <div class="dash-hero-val" style="color:${bal>=0?'var(--gold)':'var(--red)'}">${fmtEur(bal)}</div>
+    <div style="display:flex;justify-content:center;gap:16px;margin-top:6px">
+      <span class="mono xs g">+${fmtEur(inc)}</span>
+      <span class="mono xs p">−${fmtEur(expV3)}</span>
+    </div>
+  </div>`;
+  // Choix du hero selon le mode utilisateur
+  const _dashMode=localStorage.getItem('dashMode')||'full';
+  const heroHtml=_dashMode==='simple'?heroHtmlV3:heroHtmlV4;
   // ── Budget Hebdo card (gradient bar) ──
   let weeklyCard='';
   if(wb>0){
@@ -2473,7 +2571,14 @@ function rDash(){
   const _savedOrder=JSON.parse(localStorage.getItem('dashOrder')||'null')||_defaultOrder;
   const _restOrder=_savedOrder.filter(k=>k in _dashSections&&!_obsoleteKeys.has(k)&&!_pinnedTop.includes(k)).concat(_defaultOrder.filter(k=>!_savedOrder.includes(k)&&k in _dashSections&&!_pinnedTop.includes(k)));
   const _order=[..._pinnedTop,..._restOrder];
+  // Le mode (simple/full) n'affecte QUE le style du hero ; toutes les autres sections restent visibles.
   return _order.map(k=>_dashSections[k]?.html||'').join('');
+}
+// Bascule entre les modes simple / full du dashboard
+function _setDashMode(mode){
+  localStorage.setItem('dashMode',mode==='simple'?'simple':'full');
+  toast(mode==='simple'?'Mode simple activé':'Mode complet activé');
+  render();
 }
 function renderBalanceChart(m6){
   if(!m6||typeof Chart==='undefined')return;
@@ -4560,7 +4665,44 @@ function rSettings(){
     <div class="stat-mini"><div class="stat-mini-l">Catégories</div><div class="stat-mini-v">${nbCats}</div></div>
     <div class="stat-mini"><div class="stat-mini-l">Devise</div><div class="stat-mini-v">${esc(curSymbol())}</div></div>
   </div>`;
+  const currentDashMode=localStorage.getItem('dashMode')||'full';
   return `${statsRow}
+  <div class="card">
+    <div class="card-t">🖼 Style du hero dashboard</div>
+    <p class="mono xxs" style="color:var(--muted);margin-bottom:12px;line-height:1.5">Choisis comment afficher le bloc principal en haut du dashboard. Toutes les autres sections restent identiques.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+      <button type="button" onclick="_setDashMode('full')" style="background:${currentDashMode==='full'?'linear-gradient(135deg,rgba(129,140,248,.25),rgba(167,139,250,.25))':'rgba(255,255,255,.04)'};border:1px solid ${currentDashMode==='full'?'rgba(129,140,248,.5)':'rgba(255,255,255,.08)'};color:${currentDashMode==='full'?'#A78BFA':'var(--dim)'};font-family:var(--mono);font-size:11px;padding:12px 8px;cursor:pointer;border-radius:10px;font-weight:700;text-align:left;line-height:1.4">
+        <div style="font-size:18px;margin-bottom:4px">🎨</div>
+        <div>Détaillé</div>
+        <div style="font-size:9px;color:var(--muted);margin-top:4px;font-weight:400">Tout est séparé et interactif</div>
+      </button>
+      <button type="button" onclick="_setDashMode('simple')" style="background:${currentDashMode==='simple'?'linear-gradient(135deg,rgba(129,140,248,.25),rgba(167,139,250,.25))':'rgba(255,255,255,.04)'};border:1px solid ${currentDashMode==='simple'?'rgba(129,140,248,.5)':'rgba(255,255,255,.08)'};color:${currentDashMode==='simple'?'#A78BFA':'var(--dim)'};font-family:var(--mono);font-size:11px;padding:12px 8px;cursor:pointer;border-radius:10px;font-weight:700;text-align:left;line-height:1.4">
+        <div style="font-size:18px;margin-bottom:4px">⚖</div>
+        <div>Simple</div>
+        <div style="font-size:9px;color:var(--muted);margin-top:4px;font-weight:400">Juste l'essentiel, centré</div>
+      </button>
+    </div>
+    <div style="background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:12px;margin-bottom:6px">
+      <div class="mono xxs" style="color:var(--dim);letter-spacing:1px;margin-bottom:8px">COMMENT CHOISIR ?</div>
+      <div style="display:flex;gap:10px;margin-bottom:10px">
+        <div style="flex-shrink:0;font-size:18px;width:26px;text-align:center">🎨</div>
+        <div style="min-width:0">
+          <div class="mono xs" style="color:var(--text);font-weight:700;margin-bottom:3px">Détaillé — pour piloter au quotidien</div>
+          <div class="mono xxs" style="color:var(--muted);line-height:1.6">Tu peux choisir une date pour voir ton solde à cette date (aujourd'hui, fin du mois, ou n'importe quand). Les revenus, dépenses et épargne sont <b>séparés</b> pour bien distinguer ce que tu dépenses de ce que tu mets de côté.</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.05)">
+        <div style="flex-shrink:0;font-size:18px;width:26px;text-align:center">⚖</div>
+        <div style="min-width:0">
+          <div class="mono xs" style="color:var(--text);font-weight:700;margin-bottom:3px">Simple — pour un aperçu rapide</div>
+          <div class="mono xxs" style="color:var(--muted);line-height:1.6">Solde du mois cumulé, et dessous <b>revenus vs tout ce qui sort</b> (dépenses + épargne ensemble). Pas de date, pas de séparation épargne/dépenses — juste "combien je gagne" vs "combien je dépense au total".</div>
+        </div>
+      </div>
+    </div>
+    <div style="background:rgba(167,139,250,.06);border-left:2px solid rgba(167,139,250,.4);padding:8px 10px;border-radius:4px">
+      <div class="mono xxs" style="color:var(--dim);line-height:1.6"><b style="color:#A78BFA">Exemple</b> — Salaire 2 500 €, dépenses 1 556 €, épargne auto 1 000 €&nbsp;:<br>• <b>Détaillé</b> : Revenus +2 500 · Dépenses −1 556 · Épargne →1 000 · Net −56<br>• <b>Simple</b> : +2 500 · −2 556 (dépenses et épargne confondues)</div>
+    </div>
+  </div>
   <div class="card">
     <div class="card-t">🎯 Plafonds par catégorie</div>
     <p class="mono xxs" style="color:var(--muted);margin-bottom:12px;line-height:1.5">Gère tes plafonds mensuels avec des cards visuelles et une prévision intelligente.</p>
@@ -4745,9 +4887,12 @@ function rProfile(){
     </div>
   </div>
   <div class="card">
-    <div class="card-t">📖 Guide de l'app</div>
-    <p class="mono xxs" style="color:var(--muted);margin-bottom:12px;line-height:1.5">Découvrez toutes les fonctionnalités de Budget Pro.</p>
-    <button class="submit" onclick="openAppGuide()">Voir le guide complet</button>
+    <div class="card-t">📖 Guide & aide</div>
+    <p class="mono xxs" style="color:var(--muted);margin-bottom:12px;line-height:1.5">Tutoriel de démarrage ou documentation complète.</p>
+    <div style="display:flex;gap:8px">
+      <button type="button" onclick="openWelcome(false)" style="flex:1;background:linear-gradient(135deg,rgba(129,140,248,.2),rgba(167,139,250,.2));border:1px solid rgba(129,140,248,.4);color:#A78BFA;font-family:var(--mono);font-size:11px;padding:10px;cursor:pointer;border-radius:8px;font-weight:700">👋 Guide de démarrage</button>
+      <button type="button" onclick="openAppGuide()" style="flex:1;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:var(--text);font-family:var(--mono);font-size:11px;padding:10px;cursor:pointer;border-radius:8px;font-weight:700">📖 Guide complet</button>
+    </div>
   </div>`;
 }
 function saveProfileForm(){
@@ -4982,6 +5127,10 @@ function openEditSub(id){
     <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
       <input id="esActive" type="checkbox"${s.active!==false?' checked':''}> Actif
     </label>
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+      <input id="esAutoRenew" type="checkbox"${s.autoRenew!==false?' checked':''}> Renouvellement automatique après la date d'échéance
+    </label>
+    <div class="mono xxs" style="color:var(--muted);margin:-4px 0 4px;padding-left:24px;line-height:1.5">Si coché : à la date de <b>next</b>, l'app crée automatiquement la tx réelle dans l'historique. Sinon, tu dois cliquer ↻ manuellement.</div>
     <div id="sAllocWrap_${s.id}">${s._tp==='i'?_renderSubAllocations(s):''}</div>
     <div id="sHistWrap_${s.id}">${histHtml}</div>
   </div>`;
@@ -5431,7 +5580,8 @@ function saveEditSub(id){
     s.priceHistory.push({a:newAmt,effectiveFrom:effDate});
     s.priceHistory.sort((a,b)=>(a.effectiveFrom||'').localeCompare(b.effectiveFrom||''));
   }
-  s.name=name; s.a=newAmt; s.freq=freq; s.next=next; s._cat=cat; s._tp=tp; s.active=active;
+  const autoRenew=document.getElementById('esAutoRenew')?.checked!==false;
+  s.name=name; s.a=newAmt; s.freq=freq; s.next=next; s._cat=cat; s._tp=tp; s.active=active; s.autoRenew=autoRenew;
   save(); closeSheet(); toast(tp==='i'?'Revenu modifié':'Abonnement modifié'); render();
 }
 function triggerLogoUpload(subId){
@@ -6986,6 +7136,61 @@ function _initReminders(){
 // ═══════════════════════════════════════════════════════════
 // APP GUIDE
 // ═══════════════════════════════════════════════════════════
+// Welcome onboarding : affiché au premier lancement (localStorage._welcomeShown absent)
+// et accessible manuellement depuis Paramètres.
+function openWelcome(markAsShown){
+  const steps=[
+    {icon:'👋',title:'Bienvenue sur Budget Pro',body:'L\'app qui t\'aide à piloter ton budget au quotidien. Voici l\'essentiel en 5 écrans pour bien démarrer.'},
+    {icon:'🧭',title:'La logique des comptes',body:`<b>3 pots différents :</b><br>• <b>Solde courant</b> : ton compte bancaire de tous les jours<br>• <b>Épargnes</b> : livret, compte épargne (→ comptent dans le patrimoine)<br>• <b>Objectifs</b> : argent réservé pour un projet (→ ne comptent pas dans le patrimoine)<br><br>Tu peux transférer entre les pots sans forcément toucher au solde.`},
+    {icon:'↻',title:'Abonnements & renouvellement auto',body:'Déclare tes charges récurrentes une fois (loyer, salaire, Netflix…). À la date d\'échéance, l\'app crée <b>automatiquement</b> la vraie transaction — tu n\'as rien à faire.<br><br>Si tu préfères garder la main sur un sub (salaire variable par ex.), décoche "Renouvellement auto" dans ses paramètres.'},
+    {icon:'✨',title:'Répartir une prime',body:'Tu reçois un bonus exceptionnel ? Dans <b>Ajout</b>, clique sur <b>✨ Répartir une prime</b>.<br><br>Saisis le total, indique les parts à envoyer vers épargne ou objectifs — le reste atterrit sur ton solde. Tout est créé d\'un coup.'},
+    {icon:'🔄',title:'Transfert interne',body:'Tu veux déplacer de l\'argent entre ton épargne et un objectif, sans impact sur ton solde ?<br><br>Dans <b>Ajout</b> → <b>🔄 Transfert interne</b>. Source et destination, montant — c\'est rééquilibré.'},
+    {icon:'🎯',title:'Tu es prêt !',body:`Le guide complet est accessible à tout moment depuis <b>Plus → Aide</b>.<br><br>Quelques bonnes pratiques pour commencer :<br>• Ajoute tes abonnements d'abord (loyer, salaire…)<br>• Crée une ou deux épargnes si tu en as<br>• Laisse l'app tourner : tes tx quotidiennes via l'onglet <b>＋ Ajout</b> ou par import bancaire<br><br>Bonne gestion ! 💰`}
+  ];
+  let idx=0;
+  const render=()=>{
+    const s=steps[idx];
+    const dots=steps.map((_,i)=>`<div style="width:${i===idx?'18':'6'}px;height:6px;border-radius:3px;background:${i===idx?'#A78BFA':'rgba(255,255,255,.15)'};transition:all .3s"></div>`).join('');
+    const body=`<div style="min-height:360px;display:flex;flex-direction:column">
+      <div style="flex:1;text-align:center;padding:20px 10px">
+        <div style="font-size:56px;margin-bottom:14px">${s.icon}</div>
+        <div style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:14px;line-height:1.3">${s.title}</div>
+        <div class="mono xs" style="color:var(--dim);line-height:1.7;text-align:left;max-width:420px;margin:0 auto">${s.body}</div>
+      </div>
+      <div style="display:flex;justify-content:center;gap:6px;margin:12px 0;align-items:center">${dots}</div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        ${idx>0?'<button type="button" onclick="window._welcomePrev()" style="flex:1;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:var(--dim);font-family:var(--mono);font-size:11px;padding:12px;cursor:pointer;border-radius:10px;font-weight:700">← Précédent</button>':'<button type="button" onclick="window._welcomeSkip()" style="flex:1;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:var(--muted);font-family:var(--mono);font-size:11px;padding:12px;cursor:pointer;border-radius:10px;font-weight:700">Passer</button>'}
+        ${idx<steps.length-1
+          ?'<button type="button" onclick="window._welcomeNext()" style="flex:1;background:linear-gradient(135deg,#818CF8,#A78BFA);border:none;color:#fff;font-family:var(--mono);font-size:11px;padding:12px;cursor:pointer;border-radius:10px;font-weight:700">Suivant →</button>'
+          :'<button type="button" onclick="window._welcomeFinish()" style="flex:1;background:linear-gradient(135deg,#7EC8A9,#96D8B8);border:none;color:#0A0C0F;font-family:var(--mono);font-size:11px;padding:12px;cursor:pointer;border-radius:10px;font-weight:700">Commencer ! →</button>'}
+      </div>
+    </div>`;
+    document.getElementById('sheetTitle').textContent=`Guide de démarrage (${idx+1}/${steps.length})`;
+    document.getElementById('sheetBody').innerHTML=body;
+  };
+  // Masque les boutons par défaut de la sheet (Annuler / Sauvegarder) pendant le welcome
+  const _hideSheetDefaultBtns=()=>{
+    const sheetBox=document.getElementById('sheetBox');
+    if(!sheetBox)return;
+    const btnContainer=sheetBox.querySelector('div[style*="padding:12px 20px"]');
+    if(btnContainer)btnContainer.style.display='none';
+  };
+  const _restoreSheetDefaultBtns=()=>{
+    const sheetBox=document.getElementById('sheetBox');
+    if(!sheetBox)return;
+    const btnContainer=sheetBox.querySelector('div[style*="padding:12px 20px"]');
+    if(btnContainer)btnContainer.style.display='';
+  };
+  window._welcomeNext=()=>{if(idx<steps.length-1){idx++;render();}};
+  window._welcomePrev=()=>{if(idx>0){idx--;render();}};
+  window._welcomeSkip=()=>{if(markAsShown)localStorage.setItem('_welcomeShown','1');_restoreSheetDefaultBtns();closeSheet();};
+  window._welcomeFinish=()=>{if(markAsShown)localStorage.setItem('_welcomeShown','1');_restoreSheetDefaultBtns();closeSheet();toast('Bienvenue ! 🎉');};
+  openSheet('Guide de démarrage (1/'+steps.length+')','',null);
+  _hideSheetDefaultBtns();
+  // Override save action to finish
+  window._sheetSave=()=>window._welcomeFinish();
+  render();
+}
 function openAppGuide(){
   const sections=[
     {icon:'🧭',title:'Logique des comptes',items:[
@@ -7705,6 +7910,19 @@ initTheme();
 updateHeaderProfile();
 render();
 _initReminders();
+// Toast si des abonnements ont été auto-renouvelés au chargement
+if(window._autoRenewedCount>0){
+  const names=window._autoRenewedNames||[];
+  const preview=names.slice(0,3).join(', ')+(names.length>3?`, +${names.length-3} autres`:'');
+  setTimeout(()=>toast(`↻ ${window._autoRenewedCount} renouvellement${window._autoRenewedCount>1?'s':''} auto : ${preview}`),300);
+  delete window._autoRenewedCount;
+  delete window._autoRenewedNames;
+}
+// Guide de démarrage au premier lancement (si aucune donnée préalable → vraiment premier lancement)
+if(!localStorage.getItem('_welcomeShown')){
+  // Laisse un petit délai pour que l'UI se stabilise
+  setTimeout(()=>openWelcome(true),600);
+}
 // A11y : aria-label auto pour les boutons icon-only
 function _autoAriaLabels(){
   const labelMap={'✎':'Modifier','×':'Supprimer','↺':'Renouveler','⏸':'Mettre en pause','▶':'Réactiver','📋':'Voir échéancier','＋':'Ajouter','🗑':'Supprimer','⋮':'Plus d\'options'};
