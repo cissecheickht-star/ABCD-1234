@@ -492,6 +492,34 @@ button,a,[onclick]{touch-action:manipulation}
 .hero-dark-flex-val{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
 .hero-dark-flex-val.g{color:#7EC8A9}
 .hero-dark-flex-val.p{color:#C87EA9}
+/* Patrimoine v4 — pills + sparkline + trend chip */
+.patr-pills{display:flex;gap:4px;align-items:center;background:rgba(255,255,255,.04);padding:4px;border-radius:14px;border:1px solid rgba(255,255,255,.06);margin-top:14px;position:relative;z-index:2}
+.patr-pill{flex:1;background:transparent;border:none;color:var(--dim);font-family:var(--mono);font-size:10px;padding:9px 6px;cursor:pointer;border-radius:10px;font-weight:600;letter-spacing:.5px;transition:all .25s cubic-bezier(.16,1,.3,1);text-transform:uppercase;text-align:center;-webkit-appearance:none;appearance:none;color-scheme:dark}
+.patr-pill.on{background:linear-gradient(135deg,rgba(129,140,248,.22),rgba(167,139,250,.22));color:#A78BFA;box-shadow:0 2px 8px rgba(129,140,248,.15)}
+.patr-pill:active{transform:scale(.96)}
+.patr-pill.date{font-family:var(--mono);font-size:11px;color:var(--text);background:transparent;border:none;outline:none}
+.patr-trend{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:14px;font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.3px;line-height:1}
+.patr-trend.up{background:rgba(126,200,169,.15);color:#7EC8A9;border:1px solid rgba(126,200,169,.25)}
+.patr-trend.down{background:rgba(200,126,169,.15);color:#C87EA9;border:1px solid rgba(200,126,169,.25)}
+.patr-trend.flat{background:rgba(255,255,255,.05);color:var(--muted);border:1px solid rgba(255,255,255,.08)}
+.patr-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.5px}
+.patr-meta-dot{width:3px;height:3px;border-radius:50%;background:var(--muted);flex-shrink:0}
+.patr-spark{opacity:.85;line-height:0;flex-shrink:0}
+.patr-alt-line{display:inline-flex;align-items:center;gap:8px;background:rgba(126,169,200,.08);border:1px solid rgba(126,169,200,.2);border-radius:10px;padding:7px 12px;cursor:pointer;font-family:var(--mono);transition:all .2s;width:auto;-webkit-appearance:none;appearance:none;color-scheme:dark;position:relative;z-index:1}
+.patr-alt-line:hover{background:rgba(126,169,200,.14);border-color:rgba(126,169,200,.35)}
+.patr-alt-line:active{transform:scale(.98)}
+.patr-alt-arrow{font-size:11px;color:#7EA9C8;font-weight:700;line-height:1}
+.patr-alt-lb{font-size:9px;color:var(--muted);letter-spacing:1.2px;text-transform:uppercase;font-weight:600}
+.patr-alt-val{font-size:13px;color:var(--text);font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.2px}
+.patr-alt-val.neg{color:#C87EA9}
+[data-theme="light"] .patr-alt-line{background:rgba(0,122,255,.08);border-color:rgba(0,122,255,.2)}
+[data-theme="light"] .patr-alt-arrow{color:#007AFF}
+[data-theme="kitty"] .patr-alt-line{background:rgba(255,105,180,.1);border-color:rgba(255,105,180,.25)}
+[data-theme="kitty"] .patr-alt-arrow{color:#FF69B4}
+[data-theme="light"] .patr-pill{color:rgba(255,255,255,.55)}
+[data-theme="light"] .patr-pill.on{color:#fff;background:linear-gradient(135deg,rgba(0,122,255,.4),rgba(88,86,214,.4));box-shadow:0 2px 8px rgba(0,122,255,.25)}
+[data-theme="light"] .patr-pills{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.1)}
+[data-theme="kitty"] .patr-pill.on{background:linear-gradient(135deg,rgba(255,105,180,.3),rgba(233,30,140,.3));color:#fff}
 /* Light theme hero variant */
 [data-theme="light"] .hero-dark{background:linear-gradient(135deg,#1A1D23,#0B0D11);border-color:rgba(0,122,255,.25)}
 [data-theme="light"] .hero-dark-label{color:rgba(255,255,255,.55)}
@@ -971,8 +999,8 @@ function getKpiPrefs(){try{return{...DEFAULT_KPIS,...JSON.parse(localStorage.get
 function saveKpiPrefs(p){localStorage.setItem('kpiPrefs',JSON.stringify(p));}
 
 function loadData(){
-  try{const d=JSON.parse(localStorage.getItem('bpro2'));if(d){if(!d.s)d.s=[];if(!d.goals)d.goals=[];if(!d.assets)d.assets=[];if(!d.debts)d.debts=[];if(!d.stocks)d.stocks=[];if(!d.creances)d.creances=[];if(!d.trash)d.trash=[];return d;}}catch(e){}
-  return {t:[],b:{},s:[],goals:[],assets:[],debts:[],stocks:[],creances:[],trash:[]};
+  try{const d=JSON.parse(localStorage.getItem('bpro2'));if(d){if(!d.s)d.s=[];if(!d.goals)d.goals=[];if(!d.assets)d.assets=[];if(!d.debts)d.debts=[];if(!d.stocks)d.stocks=[];if(!d.creances)d.creances=[];if(!d.trash)d.trash=[];if(!d.dividendes)d.dividendes=[];return d;}}catch(e){}
+  return {t:[],b:{},s:[],goals:[],assets:[],debts:[],stocks:[],creances:[],trash:[],dividendes:[]};
 }
 let data=loadData();
 // Migration : réconcilie les _subId ET les transfer.id orphelins avec les entités actuelles.
@@ -1294,6 +1322,18 @@ function setTheme(name){
 function changeMonth(delta){
   const dt=new Date(sy,sm+delta,1);sm=dt.getMonth();sy=dt.getFullYear();updateHeader();
   _invalidateCache();
+  // Page Patrimoine : suit la navigation mensuelle si patrDate est "aujourd'hui" ou un fin-de-mois
+  if(cv==='patrimoine'){
+    const todayIso=_ymd(new Date());
+    const newEndOfMo=_ymd(new Date(sy,sm+1,0));
+    const cur=window._patrDate||todayIso;
+    const curD=new Date(cur+'T12:00:00');
+    const isMoEnd=curD.getDate()===new Date(curD.getFullYear(),curD.getMonth()+1,0).getDate();
+    const isCurMonthView=(sm===new Date().getMonth()&&sy===new Date().getFullYear());
+    if(cur===todayIso||isMoEnd){
+      window._patrDate=isCurMonthView?todayIso:newEndOfMo;
+    }
+  }
   const mainEl=document.getElementById('main');
   if(mainEl){mainEl.classList.remove('slide-left','slide-right');void mainEl.offsetHeight;mainEl.classList.add(delta>0?'slide-left':'slide-right');}
   render();
@@ -1693,6 +1733,10 @@ function _setPatrDate(dateStr){
   if(!dateStr)return;
   window._patrDate=dateStr;
   render();
+}
+function _togglePatrView(){
+  window._patrView=(window._patrView==='noStocks')?'all':'noStocks';
+  const m=document.getElementById('main');if(m&&cv==='patrimoine')m.innerHTML=rPatrimoine();
 }
 function _animateDashCounters(){
   try{
@@ -2944,7 +2988,8 @@ function delTx(id){
   if(tx._dispatchId){
     const related=data.t.filter(t=>t._dispatchId===tx._dispatchId);
     if(related.length>1){
-      const ok=confirm(`Cette transaction fait partie d'une répartition de prime (${related.length} opérations liées).\n\nOK : tout supprimer ensemble\nAnnuler : supprimer uniquement celle-ci`);
+      const ok=confirm(`Cette prime comporte ${related.length} opérations liées (revenu + transferts).\n\nOK : supprimer toutes les opérations\nAnnuler : ne rien supprimer`);
+      if(!ok)return;
       if(ok){
         const backups=related.map(t=>({...t}));
         // Reverse dans l'ordre inverse de création pour ne pas perturber les soldes intermédiaires
@@ -3796,30 +3841,96 @@ function rPatrimoine(){
     :totalA;
   const nwProj=totalAProj-totalD;
   const deltaProj=totalAProj-totalA;
-  const typeBadge=isPatrToday?'<span style="padding:1px 6px;border-radius:4px;background:rgba(126,169,200,.2);color:#7EA9C8;font-size:8px;letter-spacing:1px;font-weight:700;text-transform:uppercase">aujourd\'hui</span>':(isPatrFuture?'<span style="padding:1px 6px;border-radius:4px;background:rgba(167,139,250,.2);color:#A78BFA;font-size:8px;letter-spacing:1px;font-weight:700;text-transform:uppercase">projeté</span>':'<span style="padding:1px 6px;border-radius:4px;background:rgba(126,200,169,.2);color:#7EC8A9;font-size:8px;letter-spacing:1px;font-weight:700;text-transform:uppercase">réel</span>');
-  const patrDatePickerHtml=`<div style="display:flex;gap:6px;margin-top:8px;position:relative;z-index:2">
-    <button type="button" onclick="_setPatrDate('${todayIso}')" style="flex:1;background:${patrDate===todayIso?'rgba(129,140,248,.25)':'rgba(255,255,255,.05)'};border:1px solid ${patrDate===todayIso?'rgba(129,140,248,.5)':'rgba(255,255,255,.08)'};color:${patrDate===todayIso?'#A78BFA':'var(--dim)'};font-family:var(--mono);font-size:9px;padding:6px;cursor:pointer;border-radius:6px;font-weight:700">Aujourd'hui</button>
-    <button type="button" onclick="_setPatrDate('${endOfMo}')" style="flex:1;background:${patrDate===endOfMo?'rgba(129,140,248,.25)':'rgba(255,255,255,.05)'};border:1px solid ${patrDate===endOfMo?'rgba(129,140,248,.5)':'rgba(255,255,255,.08)'};color:${patrDate===endOfMo?'#A78BFA':'var(--dim)'};font-family:var(--mono);font-size:9px;padding:6px;cursor:pointer;border-radius:6px;font-weight:700">Fin du mois</button>
-    <input type="date" value="${patrDate}" onchange="_setPatrDate(this.value)" style="flex:1;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:var(--text);font-family:var(--mono);font-size:10px;padding:5px;cursor:pointer;border-radius:6px;color-scheme:dark">
+  // Sparkline 6 mois — patrimoine net approché (assets reverse-mouvements + stocks fixés + dettes courantes)
+  const _patrSparkPts=(()=>{
+    const now=new Date();const pts=[];
+    for(let i=5;i>=0;i--){
+      const monthEnd=_ymd(new Date(now.getFullYear(),now.getMonth()-i+1,0));
+      let aTot=0;
+      assets.forEach(a=>{
+        let v=a.val;
+        (a.mouvements||[]).forEach(m=>{if(m.d>monthEnd)v-=(m.delta||0);});
+        aTot+=Math.max(0,v);
+      });
+      pts.push(aTot+totalStocks-totalD);
+    }
+    return pts;
+  })();
+  const _sparkTrendUp=_patrSparkPts.length>=2&&_patrSparkPts[_patrSparkPts.length-1]>=_patrSparkPts[0];
+  const _sparkColor=_sparkTrendUp?'#7EC8A9':'#C87EA9';
+  const _patrSparkHtml=_patrSparkPts.length>=2?_sparkline(_patrSparkPts,{w:84,h:30,color:_sparkColor}):'';
+  // Variation 30j (en % et absolu)
+  const _ago30Iso=_ymd(new Date(Date.now()-30*86400000));
+  const _nw30Ago=(()=>{
+    let aTot=0;
+    assets.forEach(a=>{
+      let v=a.val;
+      (a.mouvements||[]).forEach(m=>{if(m.d>_ago30Iso)v-=(m.delta||0);});
+      aTot+=Math.max(0,v);
+    });
+    return aTot+totalStocks-totalD;
+  })();
+  // Vue : 'all' (patrimoine net total) ou 'noStocks' (épargne hors actions)
+  const _patrView=window._patrView||'all';
+  const _hideStocks=_patrView==='noStocks'&&totalStocks>0;
+  const _nwProjView=_hideStocks?nwProj-totalStocks:nwProj;
+  const _nwView=_hideStocks?nw-totalStocks:nw;
+  const _nw30AgoView=_hideStocks?_nw30Ago-totalStocks:_nw30Ago;
+  const _totalAProjView=_hideStocks?totalAProj-totalStocks:totalAProj;
+  const _deltaProjView=_hideStocks?deltaProj:deltaProj;
+  const _delta30Abs=Math.round((_nwView-_nw30AgoView)*100)/100;
+  const _delta30Pct=Math.abs(_nw30AgoView)>0.01?(_delta30Abs/Math.abs(_nw30AgoView))*100:null;
+  const _trendChip=isPatrFuture
+    ?(Math.abs(_deltaProjView)>=10?`<span class="patr-trend ${_deltaProjView>=0?'up':'down'}">${_deltaProjView>=0?'↗':'↘'} ${_deltaProjView>=0?'+':''}${fmtEur(_deltaProjView)}</span>`:'')
+    :(_delta30Pct!==null&&Math.abs(_delta30Pct)>=0.1?`<span class="patr-trend ${_delta30Abs>=0?'up':'down'}">${_delta30Abs>=0?'↗':'↘'} ${_delta30Abs>=0?'+':''}${_delta30Pct.toFixed(1)}%</span>`:'<span class="patr-trend flat">≈ stable</span>');
+  // Statut clair (sans badge UPPERCASE)
+  const _statusLabel=isPatrToday?'aujourd\'hui':(isPatrFuture?`projection au ${patrDateLabel}`:`au ${patrDateLabel}`);
+  const _statusColor=isPatrToday?'#7EA9C8':(isPatrFuture?'#A78BFA':'#7EC8A9');
+  const _heroTitle=_hideStocks?'Épargne hors actions':'Patrimoine net';
+  // Sous-ligne toujours visible : valeur "hors actions" si on est en mode total, sinon valeur totale
+  const _altLabel=_hideStocks?'avec actions':'hors actions';
+  const _altValue=_hideStocks?nwProj:(nwProj-totalStocks);
+  const _heroAltLine=`<button onclick="_togglePatrView()" class="patr-alt-line" title="Cliquer pour basculer">
+    <span class="patr-alt-arrow">⇄</span>
+    <span class="patr-alt-lb">${_altLabel}</span>
+    <span class="patr-alt-val ${_altValue<0?'neg':''}">${fmtEur(_altValue)}</span>
+  </button>`;
+  // Date picker — pills propres
+  const _isCustom=patrDate!==todayIso&&patrDate!==endOfMo;
+  const patrDatePickerHtml=`<div class="patr-pills">
+    <button type="button" onclick="_setPatrDate('${todayIso}')" class="patr-pill ${patrDate===todayIso?'on':''}">Aujourd'hui</button>
+    <button type="button" onclick="_setPatrDate('${endOfMo}')" class="patr-pill ${patrDate===endOfMo?'on':''}">Fin ${MSH[sm].toLowerCase()}</button>
+    <input type="date" value="${patrDate}" onchange="_setPatrDate(this.value)" class="patr-pill date ${_isCustom?'on':''}" title="Choisir une date">
   </div>`;
-  const realRowHtml=isPatrFuture?`<div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:6px 10px;background:rgba(255,255,255,.04);border-radius:8px;border:1px solid rgba(255,255,255,.06);position:relative;z-index:1">
-    <span class="mono xxs" style="color:var(--muted);letter-spacing:1px">RÉEL AUJOURD'HUI</span>
-    <span style="margin-left:auto;font-family:var(--mono);font-size:13px;font-weight:700;color:${nw>=0?'#7EC8A9':'#C87EA9'}">${fmtEur(nw)}</span>
-  </div>`:'';
-  // Allocations à venir d'ici fin du mois RÉEL (toutes assets confondues), toujours calculé
+  // Allocations à venir d'ici fin du mois RÉEL (toutes assets confondues)
   const _upcomingTotalMo=assets.reduce((s,a)=>s+_upcomingAssetAllocations(a.id,_endRealMo),0);
   const _endRealMoLabel=new Date(_endRealMo+'T12:00:00').toLocaleDateString('fr-FR',{day:'numeric',month:'short'});
-  const upcomingHintHtml=(!isPatrFuture&&_upcomingTotalMo>=1)?`<div class="hero-dark-delta" style="color:#A78BFA;cursor:pointer" onclick="_setPatrDate('${_endRealMo}')">⏳ +${fmtEur(_upcomingTotalMo)} d'allocations d'ici ${_endRealMoLabel} · voir projection →</div>`:'';
+  const upcomingHintHtml=(!isPatrFuture&&_upcomingTotalMo>=1)?`<div class="patr-meta" style="margin-top:8px;color:#A78BFA;cursor:pointer" onclick="_setPatrDate('${_endRealMo}')">⏳ +${fmtEur(_upcomingTotalMo)} d'allocations d'ici ${_endRealMoLabel} · voir projection →</div>`:'';
+  const realRowHtml=isPatrFuture?`<div style="display:flex;align-items:center;gap:8px;margin-top:12px;padding:8px 12px;background:rgba(255,255,255,.04);border-radius:10px;border:1px solid rgba(255,255,255,.06);position:relative;z-index:1">
+    <span class="mono xxs" style="color:var(--muted);letter-spacing:1px">⌖ Réel aujourd'hui</span>
+    <span style="margin-left:auto;font-family:var(--mono);font-size:13px;font-weight:700;color:${nw>=0?'#7EC8A9':'#C87EA9'}">${fmtEur(nw)}</span>
+  </div>`:'';
   const heroDark=`<div class="hero-dark">
-    <div class="hero-dark-label" style="display:flex;align-items:center;gap:8px">Patrimoine au ${patrDateLabel} ${typeBadge}</div>
-    <div class="hero-dark-val ${nwProj<0?'neg':''}">${fmtEur(nwProj)}</div>
-    ${isPatrFuture&&Math.abs(deltaProj)>=10?`<div class="hero-dark-delta g">📈 +${fmtEur(deltaProj)} d'allocations projetées</div>`:(upcomingHintHtml||deltaHtml)}
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px;position:relative;z-index:1">
+      <div class="hero-dark-label" style="margin-bottom:0">◆ ${_heroTitle}</div>
+      ${_patrSparkHtml?`<div class="patr-spark" title="Évolution sur 6 mois (approx.)">${_patrSparkHtml}</div>`:''}
+    </div>
+    <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:6px;position:relative;z-index:1">
+      <div class="hero-dark-val ${_nwProjView<0?'neg':''}" style="margin-bottom:0">${fmtEur(_nwProjView)}</div>
+      ${_trendChip}
+    </div>
+    ${_heroAltLine}
+    <div class="patr-meta" style="position:relative;z-index:1;margin-top:8px">
+      <span style="color:${_statusColor};font-weight:700">● ${_statusLabel}</span>
+      ${!isPatrFuture&&Math.abs(_delta30Abs)>=10?`<span class="patr-meta-dot"></span><span>${_delta30Abs>=0?'+':''}${fmtEur(_delta30Abs)} sur 30j</span>`:''}
+    </div>
     ${patrDatePickerHtml}
+    ${upcomingHintHtml}
     ${realRowHtml}
     <div class="hero-dark-flex">
       <div class="hero-dark-flex-item">
         <div class="hero-dark-flex-lb">Actifs</div>
-        <div class="hero-dark-flex-val g">+${fmtEur(totalAProj)}</div>
+        <div class="hero-dark-flex-val g">+${fmtEur(_totalAProjView)}</div>
       </div>
       <div class="hero-dark-flex-item">
         <div class="hero-dark-flex-lb">Dettes</div>
@@ -3831,7 +3942,40 @@ function rPatrimoine(){
       </div>`:''}
     </div>
   </div>`;
-  return `${heroDark}${breakdownHtml}<div class="kpis">${debtKpis?debtKpis:''}</div><div class="card"><div class="card-t">Actifs</div>${assetRows}${pieHtml}</div><div class="card"><div class="card-t">Actions · Portefeuille</div>${(()=>{const ts=parseInt(localStorage.getItem('_brvmLastRefresh')||'0');const hasBrvm=stocks.some(s=>s.market==='BRVM');const dateStr=ts?new Date(ts).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'jamais';return hasBrvm?`<div class="mono xxs" style="color:var(--dim);margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">Dernière MAJ : ${dateStr}<button id="brvmRefreshBtn" onclick="_manualRefreshBRVM()" style="background:none;border:1px solid var(--dim);color:var(--dim);border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;transition:all .2s">↻ Actualiser</button></div>`:'';})()}${stocks.length?`<div style="display:flex;justify-content:space-between;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.04)"><span class="mono xs" style="color:var(--dim)">Total actions</span><span class="mono sm g">${fmtEur(totalStocks)}</span></div>`:''} ${stockRows}</div><div class="card"><div class="card-t">Dettes & crédits</div>${debtRows}</div><div class="card"><div class="card-t">Ajouter un actif</div><div class="fg"><label class="fl">Nom<input id="aName" class="fi" type="text" placeholder="Livret A, Actions, Appartement…"></label><div class="fr2"><label class="fl">Valeur (${curSymbol()})<input id="aVal" class="fi" type="text" inputmode="decimal" placeholder="0"></label><label class="fl">Catégorie<select id="aCat" class="fs">${assetOpts}</select></label></div><button class="submit" style="background:linear-gradient(135deg,var(--green),#96D8B8)" onclick="addAsset()">Ajouter actif →</button></div></div><div class="card"><div class="card-t">Ajouter une dette / crédit</div><div class="fg"><label class="fl">Nom<input id="dName" class="fi" type="text" placeholder="Prêt immobilier, Crédit auto…"></label><div class="fr2"><label class="fl">Reste à payer (${curSymbol()})<input id="dVal" class="fi" type="text" inputmode="decimal" placeholder="0"></label><label class="fl">Montant emprunté (${curSymbol()})<input id="dBorrowed" class="fi" type="text" inputmode="decimal" placeholder="Total initial"></label></div><div class="fr3"><label class="fl">Mensualité (${curSymbol()})<input id="dMens" class="fi" type="text" inputmode="decimal" placeholder="0"></label><label class="fl">Taux (%/an)<input id="dRate" class="fi" type="number" inputmode="decimal" placeholder="3.5" step="0.1"></label><label class="fl">Date de fin<input id="dEnd" class="fi" type="month" placeholder="YYYY-MM"></label></div><label class="fl">Catégorie<select id="dCat" class="fs">${debtOpts}</select></label><button class="submit" style="background:linear-gradient(135deg,var(--pink),#D896B8)" onclick="addDebt()">Ajouter dette →</button></div></div><div class="card"><div class="card-t">Ajouter une action</div><div class="fg"><label class="fl">Nom / Entreprise<input id="stName" class="fi" type="text" placeholder="Apple, SONATEL, LVMH…"></label><div class="fr2"><label class="fl">Marché<select id="stMarket" class="fs" onchange="toggleBrvmTicker()"><option value="Euronext">Euronext (Paris)</option><option value="BRVM">BRVM (Abidjan)</option><option value="NYSE">NYSE</option><option value="NASDAQ">NASDAQ</option><option value="LSE">LSE (Londres)</option><option value="Autre">Autre</option></select></label><label class="fl" id="stTickerWrap">Ticker<input id="stTicker" class="fi" type="text" placeholder="AAPL, SNTS, MC.PA…" style="text-transform:uppercase"></label></div><div class="fr2"><label class="fl" id="stPrixLabel">Quantité<input id="stQty" class="fi" type="text" inputmode="decimal" placeholder="10"></label><label class="fl" id="stPrixWrap">Prix actuel (${curSymbol()})<input id="stPrix" class="fi" type="text" inputmode="decimal" placeholder="150.00"></label></div><label class="fl" id="stPrixAchatWrap">Prix d'achat (${curSymbol()})<input id="stPrixAchat" class="fi" type="text" inputmode="decimal" placeholder="120.00"></label><button class="submit" style="background:linear-gradient(135deg,var(--blue),#7EC8C8)" onclick="addStock()">Ajouter action →</button></div></div><div class="card"><div class="card-t">Cotations en temps réel</div><div class="fg"><label class="fl">Clé API Alpha Vantage <span class="mono xxs" style="color:var(--muted)">(gratuit sur alphavantage.co)</span><input id="stockApiKey" class="fi" type="text" placeholder="Votre clé API…" value="${localStorage.getItem('stockApiKey')||''}"></label><div style="display:flex;gap:8px"><button class="submit" style="flex:1;background:linear-gradient(135deg,var(--blue),#7EC8C8)" onclick="saveStockApiKey()">Sauver clé</button><button class="submit" style="flex:1;background:linear-gradient(135deg,var(--green),#96D8B8)" onclick="refreshAllStockPrices()">↻ Rafraîchir les prix</button></div></div></div>${creanceSection}`;
+  // ── Section Dividendes (log pur, hors patrimoine) ──
+  const _divs=(data.dividendes||[]).slice().sort((a,b)=>b.date.localeCompare(a.date));
+  const _curYear=new Date().getFullYear();
+  const _divTotalAll=_divs.reduce((s,d)=>s+d.montant,0);
+  const _divTotalYear=_divs.filter(d=>d.date.startsWith(_curYear)).reduce((s,d)=>s+d.montant,0);
+  const _divRows=_divs.map(d=>{
+    const dt=new Date(d.date+'T12:00:00').toLocaleDateString('fr-FR',{day:'numeric',month:'short',year:'numeric'});
+    return `<div class="asset-row" style="align-items:flex-start">
+      <div style="min-width:0;flex:1">
+        <div class="asset-nm">${esc(d.source)}</div>
+        <div class="asset-cat">${dt}${d.note?` · <span style="color:var(--dim);font-style:italic">${esc(d.note)}</span>`:''}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+        <span class="mono sm" style="color:#7EC8A9">+${fmtEur(d.montant)}</span>
+        <button class="sab ed" onclick="openAddDividende('${d.id}')">✎</button>
+        <button class="tx-del" onclick="delDividende('${d.id}')">×</button>
+      </div>
+    </div>`;
+  }).join('');
+  const dividendSection=`<div class="card" style="border-left:3px solid #7EC8A9">
+    <div class="row-between" style="margin-bottom:10px">
+      <div class="card-t" style="margin-bottom:0">🌱 Dividendes reçus</div>
+      <button onclick="openAddDividende()" style="background:rgba(126,200,169,.15);border:1px solid rgba(126,200,169,.3);color:#7EC8A9;font-family:var(--mono);font-size:10px;padding:5px 10px;cursor:pointer;border-radius:6px;transition:all .15s">+ Ajouter</button>
+    </div>
+    ${_divTotalAll>0?`<div style="display:flex;gap:12px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,.04)">
+      <div><div class="mono xxs" style="color:var(--muted);margin-bottom:2px">CETTE ANNÉE</div><div class="mono sm" style="color:#7EC8A9;font-weight:700">+${fmtEur(_divTotalYear)}</div></div>
+      <div><div class="mono xxs" style="color:var(--muted);margin-bottom:2px">TOTAL</div><div class="mono sm" style="color:var(--dim);font-weight:700">+${fmtEur(_divTotalAll)}</div></div>
+    </div>`:''}
+    ${_divRows||'<div class="empty">Aucun dividende enregistré</div>'}
+    <div class="mono xxs" style="color:var(--muted);margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,.04);line-height:1.6">
+      Les dividendes sont un journal informatif uniquement — ils n'affectent pas votre solde ni votre patrimoine.
+    </div>
+  </div>`;
+  return `${heroDark}${breakdownHtml}<div class="kpis">${debtKpis?debtKpis:''}</div><div class="card"><div class="card-t">Actifs</div>${assetRows}${pieHtml}</div><div class="card"><div class="card-t">Actions · Portefeuille</div>${(()=>{const ts=parseInt(localStorage.getItem('_brvmLastRefresh')||'0');const hasBrvm=stocks.some(s=>s.market==='BRVM');const dateStr=ts?new Date(ts).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'jamais';return hasBrvm?`<div class="mono xxs" style="color:var(--dim);margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">Dernière MAJ : ${dateStr}<button id="brvmRefreshBtn" onclick="_manualRefreshBRVM()" style="background:none;border:1px solid var(--dim);color:var(--dim);border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;transition:all .2s">↻ Actualiser</button></div>`:'';})()}${stocks.length?`<div style="display:flex;justify-content:space-between;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.04)"><span class="mono xs" style="color:var(--dim)">Total actions</span><span class="mono sm g">${fmtEur(totalStocks)}</span></div>`:''} ${stockRows}</div>${dividendSection}<div class="card"><div class="card-t">Dettes & crédits</div>${debtRows}</div><div class="card"><div class="card-t">Ajouter un actif</div><div class="fg"><label class="fl">Nom<input id="aName" class="fi" type="text" placeholder="Livret A, Actions, Appartement…"></label><div class="fr2"><label class="fl">Valeur (${curSymbol()})<input id="aVal" class="fi" type="text" inputmode="decimal" placeholder="0"></label><label class="fl">Catégorie<select id="aCat" class="fs">${assetOpts}</select></label></div><button class="submit" style="background:linear-gradient(135deg,var(--green),#96D8B8)" onclick="addAsset()">Ajouter actif →</button></div></div><div class="card"><div class="card-t">Ajouter une dette / crédit</div><div class="fg"><label class="fl">Nom<input id="dName" class="fi" type="text" placeholder="Prêt immobilier, Crédit auto…"></label><div class="fr2"><label class="fl">Reste à payer (${curSymbol()})<input id="dVal" class="fi" type="text" inputmode="decimal" placeholder="0"></label><label class="fl">Montant emprunté (${curSymbol()})<input id="dBorrowed" class="fi" type="text" inputmode="decimal" placeholder="Total initial"></label></div><div class="fr3"><label class="fl">Mensualité (${curSymbol()})<input id="dMens" class="fi" type="text" inputmode="decimal" placeholder="0"></label><label class="fl">Taux (%/an)<input id="dRate" class="fi" type="number" inputmode="decimal" placeholder="3.5" step="0.1"></label><label class="fl">Date de fin<input id="dEnd" class="fi" type="month" placeholder="YYYY-MM"></label></div><label class="fl">Catégorie<select id="dCat" class="fs">${debtOpts}</select></label><button class="submit" style="background:linear-gradient(135deg,var(--pink),#D896B8)" onclick="addDebt()">Ajouter dette →</button></div></div><div class="card"><div class="card-t">Ajouter une action</div><div class="fg"><label class="fl">Nom / Entreprise<input id="stName" class="fi" type="text" placeholder="Apple, SONATEL, LVMH…"></label><div class="fr2"><label class="fl">Marché<select id="stMarket" class="fs" onchange="toggleBrvmTicker()"><option value="Euronext">Euronext (Paris)</option><option value="BRVM">BRVM (Abidjan)</option><option value="NYSE">NYSE</option><option value="NASDAQ">NASDAQ</option><option value="LSE">LSE (Londres)</option><option value="Autre">Autre</option></select></label><label class="fl" id="stTickerWrap">Ticker<input id="stTicker" class="fi" type="text" placeholder="AAPL, SNTS, MC.PA…" style="text-transform:uppercase"></label></div><div class="fr2"><label class="fl" id="stPrixLabel">Quantité<input id="stQty" class="fi" type="text" inputmode="decimal" placeholder="10"></label><label class="fl" id="stPrixWrap">Prix actuel (${curSymbol()})<input id="stPrix" class="fi" type="text" inputmode="decimal" placeholder="150.00"></label></div><label class="fl" id="stPrixAchatWrap">Prix d'achat (${curSymbol()})<input id="stPrixAchat" class="fi" type="text" inputmode="decimal" placeholder="120.00"></label><button class="submit" style="background:linear-gradient(135deg,var(--blue),#7EC8C8)" onclick="addStock()">Ajouter action →</button></div></div><div class="card"><div class="card-t">Cotations en temps réel</div><div class="fg"><label class="fl">Clé API Alpha Vantage <span class="mono xxs" style="color:var(--muted)">(gratuit sur alphavantage.co)</span><input id="stockApiKey" class="fi" type="text" placeholder="Votre clé API…" value="${localStorage.getItem('stockApiKey')||''}"></label><div style="display:flex;gap:8px"><button class="submit" style="flex:1;background:linear-gradient(135deg,var(--blue),#7EC8C8)" onclick="saveStockApiKey()">Sauver clé</button><button class="submit" style="flex:1;background:linear-gradient(135deg,var(--green),#96D8B8)" onclick="refreshAllStockPrices()">↻ Rafraîchir les prix</button></div></div></div>${creanceSection}`;
 }
 function toggleBrvmTicker(){
   const mkt=document.getElementById('stMarket')?.value;
@@ -3972,6 +4116,45 @@ function delCreance(id){
   if(!confirm('Supprimer cette créance ?'))return;
   data.creances=(data.creances||[]).filter(x=>x.id!==id);
   save();
+  const m=document.getElementById('main');if(m&&cv==='patrimoine')m.innerHTML=rPatrimoine();
+}
+
+// ── Dividendes ──
+function openAddDividende(editId){
+  const existing=editId?(data.dividendes||[]).find(d=>d.id===editId):null;
+  const stockOpts=(data.stocks||[]).map(s=>`<option value="${esc(s.name)}">`).join('');
+  openSheet(existing?'Modifier le dividende':'Dividende reçu',`<div class="fg">
+    <div class="fr2">
+      <label class="fl">Date<input id="divDate" class="fi" type="date" value="${existing?existing.date:todayStr()}"></label>
+      <label class="fl">Source (action / fonds)<input id="divSource" class="fi" type="text" list="divSrcList" placeholder="SGBC, LVMH…" value="${existing?esc(existing.source):''}"><datalist id="divSrcList">${stockOpts}</datalist></label>
+    </div>
+    <label class="fl">Montant (${curSymbol()})<input id="divAmt" class="fi" type="text" inputmode="decimal" placeholder="0,00" value="${existing?existing.montant:''}"></label>
+    <label class="fl">Note <span class="mono xxs" style="color:var(--muted);text-transform:none;letter-spacing:0">(optionnel — ce que vous en avez fait)</span><input id="divNote" class="fi" type="text" placeholder="Réinvesti, encaissé, épargné…" value="${existing?esc(existing.note||''):''}"></label>
+    ${editId?`<input type="hidden" id="divEditId" value="${editId}">`:''}
+  </div>`,_submitDividende);
+}
+function _submitDividende(){
+  const editId=document.getElementById('divEditId')?.value||null;
+  const date=document.getElementById('divDate')?.value||todayStr();
+  const source=(document.getElementById('divSource')?.value||'').trim();
+  const montant=parseInput(document.getElementById('divAmt')?.value);
+  const note=(document.getElementById('divNote')?.value||'').trim();
+  if(!source){toast('Source requise','err');return;}
+  if(!montant||isNaN(montant)||montant<=0){toast('Montant invalide','err');return;}
+  if(!data.dividendes)data.dividendes=[];
+  if(editId){
+    const idx=data.dividendes.findIndex(d=>d.id===editId);
+    if(idx>=0)data.dividendes[idx]={...data.dividendes[idx],date,source,montant,note};
+  }else{
+    data.dividendes.unshift({id:gid(),date,source,montant,note});
+  }
+  save();closeSheet();toast(editId?'Dividende modifié':'Dividende enregistré');
+  const m=document.getElementById('main');if(m&&cv==='patrimoine')m.innerHTML=rPatrimoine();
+}
+function delDividende(id){
+  if(!confirm('Supprimer ce dividende ?'))return;
+  data.dividendes=(data.dividendes||[]).filter(d=>d.id!==id);
+  save();toast('Dividende supprimé');
   const m=document.getElementById('main');if(m&&cv==='patrimoine')m.innerHTML=rPatrimoine();
 }
 
