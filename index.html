@@ -6775,7 +6775,7 @@ async function startImportPDF(file){
 }
 
 // ── OCR IMAGE IMPORT ─────────────────────────────────────────
-// Smart OCR parser — handles Revolut screenshots + classic bank formats
+// Smart OCR parser — handles Revolut, Boursorama screenshots + classic bank formats
 function parseOCRText(text){
   // Pre-normalize common OCR glitches on decimals/separators
   // "16, 10 €" → "16,10 €" | "16 .10 €" → "16.10 €" | "16 ,10 €" → "16,10 €"
@@ -6818,9 +6818,13 @@ function parseOCRText(text){
     }
     return null;
   };
+  // Strip chevrons/arrows that Boursorama adds after amounts: "-136,54 € >" → "-136,54 €"
+  text=text.replace(/([€$£])\s*[>›→»]/g,'$1');
   // Detect screenshot formats
   const lowerAll=text.toLowerCase().replace(/['']/g,"'");
   const isRevolut=/(petite monnaie|solde actuel|virement instantan)/i.test(lowerAll);
+  const isBourso=/(bourso|comptes\s+envoyer\s+cartes|alimenter\s+menu|cartes\s+alimenter)/i.test(lowerAll)
+    || /\b(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\s+\d{1,2}\s+(janvier|f[ée]vrier|mars|avril|mai|juin|juillet|ao[uû]t|septembre|octobre|novembre|d[ée]cembre)\s+\d{4}\b/i.test(text);
   // Single-transaction detail view (Apple Wallet / LCL): "État : accepté", "Total", "Contacter LCL"
   const isTxDetail=/[ée]tat\s*:\s*(accept|refus|en\s*attente)/i.test(lowerAll)
     && /(contacter|signaler|l'app cartes|mastercard|visa)/i.test(lowerAll);
@@ -6860,7 +6864,7 @@ function parseOCRText(text){
   // LCL/Apple Pay: weekday labels after transactions, no sign on amounts = all debits
   const isLCLPay=/(derni[èe]res transactions|apple pay|inventive|\blcl\b)/i.test(lowerAll)
     || /\n\s*(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|hier|aujourd'?hui)\s*\n/i.test('\n'+lines.join('\n')+'\n');
-  if(isLCLPay && !isRevolut){
+  if(isLCLPay && !isRevolut && !isBourso){
     // Strategy: find transaction lines (label + amount), then look AFTER for weekday label
     const isCardNoise=l=>{
       const low=l.toLowerCase().trim();
@@ -6913,8 +6917,8 @@ function parseOCRText(text){
     });
     if(rows.length)return rows;
   }
-  // Revolut screenshot detection (weekday BEFORE transactions, signed amounts)
-  if(isRevolut||/aujourd'?hui|^hier\b/im.test(text)){
+  // Revolut / Boursorama screenshot detection (date header BEFORE transactions, signed amounts)
+  if(isRevolut||isBourso||/aujourd'?hui|^hier\b/im.test(text)){
     let curDate=_ymd(today);
     // Noise patterns to skip entirely
     const isNoise=l=>{
@@ -6926,6 +6930,13 @@ function parseOCRText(text){
       if(/^[+\-−–]\s?\d{1,3}(?:[\s.]\d{3})*(?:[,.]\d{2})?\s?[€$£]?\s*$/.test(l.trim()))return true; // daily summary "+2 €"
       if(/^\d{1,3}(?:[,.]\d{2})?\s?[€$£]\s*$/.test(l.trim()))return true; // solde "10,07 €"
       if(/^\d+\s*$/.test(l.trim()))return true;             // standalone number
+      // Boursorama noise
+      if(/comptes?\s+envoyer|cartes?\s+alimenter|alimenter\s+menu/i.test(low))return true; // bottom nav
+      if(/^(comptes?|envoyer|cartes?|alimenter|menu)\s*$/i.test(low))return true; // single nav word
+      if(/^[<>«»‹›\s]+$/.test(l.trim()))return true;       // lone chevrons / arrows
+      if(/^[QO@]\s*\.{2,}/i.test(l.trim()))return true;    // OCR glitches on icons
+      // Unsigned amount alone on a line = balance display (Boursorama "310,50 €"), not a tx
+      if(isBourso&&/^\d{1,3}(?:[\s.]\d{3})*(?:[,.]\d{2})?\s?[€$£]\s*$/.test(l.trim()))return true;
       return false;
     };
     // Is this a date header line?
@@ -6935,6 +6946,15 @@ function parseOCRText(text){
       if(/aujourd'?hui/i.test(low))return _ymd(today);
       // "hier" possibly followed by amount
       if(/^hier\b/i.test(low)){const d=new Date(today);d.setDate(d.getDate()-1);return _ymd(d);}
+      // Boursorama: "Jeudi 30 avril 2026" (weekday + day + month + year)
+      const dmY=low.match(/(?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)\s+(\d{1,2})\s+(janvier|f[ée]vrier|fevrier|mars|avril|mai|juin|juillet|ao[uû]t|aout|septembre|octobre|novembre|d[ée]cembre|decembre)\s+(\d{4})/);
+      if(dmY){
+        const day=parseInt(dmY[1]);
+        const moKey=dmY[2].normalize('NFD').replace(/[̀-ͯ]/g,'');
+        const mo=MOIS_FR[moKey]||MOIS_FR[dmY[2]];
+        const yr=parseInt(dmY[3]);
+        if(mo)return `${yr}-${String(mo).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+      }
       // "31 mars" or "lun. 31 mars" etc.
       const dm=low.match(/(\d{1,2})\s+(janvier|f[ée]vrier|fevrier|mars|avril|mai|juin|juillet|ao[uû]t|aout|septembre|octobre|novembre|d[ée]cembre|decembre|janv|f[ée]vr|fevr|avr|juil|sept|oct|nov|d[ée]c|dec)/i);
       if(dm){
@@ -7441,7 +7461,7 @@ function openAppGuide(){
       'CSV : 10 banques supportées (CE, Boursobank, BNP, SG, CA, LCL, CIC, Revolut FR/EN, N26)',
       'PDF : relevés bancaires avec colonnes Débit/Crédit auto',
       'Image / Screenshot : OCR intelligent (Tesseract.js)',
-      'Screenshots Revolut : détection auto (filtre Pocket/Épargne/Renvoyé)',
+      'Screenshots Revolut & Boursorama : détection auto des dates et transactions',
       'Détection des doublons avant import',
       'Catégorisation automatique par IA (clé Claude optionnelle)',
       'Détection automatique des abonnements récurrents',
